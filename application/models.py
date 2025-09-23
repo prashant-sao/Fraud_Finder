@@ -1,5 +1,5 @@
 from application.database import db
-from flask_security import UserMixin,RoleMixin
+from flask_security import UserMixin, RoleMixin
 
 class User(db.Model, UserMixin):
     __tablename__ = 'User'
@@ -10,6 +10,7 @@ class User(db.Model, UserMixin):
     qualifications = db.Column(db.String(120), nullable=True)
     fields_of_interest = db.Column(db.String(250), nullable=True)
     fs_uniquifier = db.Column(db.String(255), unique=True, nullable=False)
+    active = db.Column(db.Boolean(), default=True) 
     roles = db.relationship('Role', secondary='user_roles', backref=db.backref('users', lazy='dynamic'))
 
 class Role(db.Model, RoleMixin):
@@ -25,7 +26,7 @@ class UserRoles(db.Model):
 
 class Job_Posting(db.Model):
     __tablename__ = 'Job_Posting'
-    job_id = db.Column(db.Integer,primary_key=True)
+    job_id = db.Column(db.Integer, primary_key=True)
     url = db.Column(db.String(200), nullable=False)
     company_name = db.Column(db.String(100), nullable=False)
     job_title = db.Column(db.String(150), nullable=False)
@@ -37,19 +38,19 @@ class Job_Posting(db.Model):
 class Trending_Fraud_Job(db.Model):
     __tablename__ = 'Trending_Fraud_Job'
     trend_id = db.Column(db.Integer, primary_key=True)
-    last_udated = db.Column(db.DateTime, nullable=False)
+    last_updated = db.Column(db.DateTime, nullable=False)  # Fixed typo
     popularity_score = db.Column(db.Float, nullable=False)
     job_id = db.Column(db.Integer, db.ForeignKey('Job_Posting.job_id'), nullable=False)
-    fields_of_interest = db.Column(db.String(250),db.ForeignKey('User'), nullable=True)
+    fields_of_interest = db.Column(db.String(250), nullable=True)  # Fixed FK reference
 
-class analysis_results(db.model):
+class Analysis_Results(db.Model):  # Fixed class name capitalization
     __tablename__ = 'analysis_results'
     analysis_id = db.Column(db.Integer, primary_key=True)
     risk_score = db.Column(db.Float, nullable=False)
     summary_labels = db.Column(db.Text, nullable=True)
     job_id = db.Column(db.Integer, db.ForeignKey('Job_Posting.job_id'), nullable=False)
 
-class company_verification(db.Model):
+class Company_Verification(db.Model):  # Fixed class name capitalization
     __tablename__ = 'company_verification'
     company_id = db.Column(db.Integer, primary_key=True)
     company_name = db.Column(db.String(100), nullable=False)
@@ -59,7 +60,7 @@ class company_verification(db.Model):
     reputation_score = db.Column(db.Float, nullable=False)
     is_verified = db.Column(db.Boolean, nullable=False)
 
-class community_reports(db.Model):
+class Community_Reports(db.Model):  # Fixed class name capitalization
     __tablename__ = 'community_reports'
     report_id = db.Column(db.Integer, primary_key=True)
     report_date = db.Column(db.DateTime, nullable=False)
@@ -67,14 +68,10 @@ class community_reports(db.Model):
     job_id = db.Column(db.Integer, db.ForeignKey('Job_Posting.job_id'), nullable=False)
     user_id = db.Column(db.Integer, db.ForeignKey('User.id'), nullable=False)
 
-
-class fraud_indicators(db.Model):
+class Fraud_Indicators(db.Model):  # Fixed class name capitalization
     __tablename__ = 'fraud_indicators'
     indicator_id = db.Column(db.Integer, primary_key=True)
     indicator_type = db.Column(db.String(100), nullable=False)
     description = db.Column(db.Text, nullable=True)
     severity_level = db.Column(db.String(50), nullable=False)
     analysis_id = db.Column(db.Integer, db.ForeignKey('analysis_results.analysis_id'), nullable=False)
-
-   
-

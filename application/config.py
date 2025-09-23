@@ -3,7 +3,7 @@ class Config():
     SQLALCHEMY_TRACK_MODIFICATIONS = True
     
 class LocalDevlopmentConfig(Config):
-    SQLALCHEMY_DATABASE_URI = ''
+    SQLALCHEMY_DATABASE_URI = 'sqlite:///fraud_detection.db'
     DEBUG = True
     
     #config for security

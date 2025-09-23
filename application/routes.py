@@ -1,19 +1,21 @@
-from flask import current_app as app,jsonify,request,render_template,send_from_directory
-from flask_security import auth_required,current_user,login_user
+from flask import Blueprint, jsonify, request, render_template
+from flask_security import auth_required, current_user, login_user
 from werkzeug.security import generate_password_hash, check_password_hash
 from application.database import db
 
-@app.route('/')
+api_bp = Blueprint('api_bp', __name__)
+
+@api_bp.route('/')
 def index():
     return render_template('index.html')
 
-@app.route('/api/register', methods=['POST'])
+@api_bp.route('/api/register', methods=['POST'])
 def register():
     credentials = request.get_json()
 
-    if app.security.datastore.find_user(email=credentials['email']):
+    if api_bp.security.datastore.find_user(email=credentials['email']):
         return jsonify({"message": "User already exists"}), 400
-    new_user = app.security.datastore.create_user(
+    new_user = api_bp.security.datastore.create_user(
         email=credentials['email'],
         username=credentials['username'], 
         password=generate_password_hash(credentials['password']),
@@ -24,9 +26,7 @@ def register():
     db.session.commit()
     return jsonify({"message": "User registered successfully"}), 201
 
-
-    
-@app.route('/login', methods=['POST'])
+@api_bp.route('/login', methods=['POST'])
 def login():
     data = request.get_json()
     username = data.get('username')
@@ -35,18 +35,18 @@ def login():
     if not username or not password:
         return jsonify({'message': 'Username and password are required!'}), 400
 
-    user = app.security.datastore.find_user(username=username)
+    user = api_bp.security.datastore.find_user(username=username)
     if user and check_password_hash(user.password, password):
         login_user(user)
         return jsonify({'message': 'Login successful!'}), 200
     else:
         return jsonify({'message': 'Invalid username or password!'}), 401
-    
-@app.route('/edit_profile', methods=['PUT'])
+
+@api_bp.route('/edit_profile', methods=['PUT'])
 @auth_required('token')
 def edit_profile():
     data = request.get_json()
-    user = app.security.datastore.find_user(id=current_user.id)
+    user = api_bp.security.datastore.find_user(id=current_user.id)
 
     if 'username' in data:
         user.username = data['username']
@@ -62,18 +62,3 @@ def edit_profile():
     db.session.commit()
     return jsonify({'message': 'Profile updated successfully!'}), 200
 
-@app.route('/api/history', methods=['GET'])
-@auth_required('token')
-def get_history():
-    user = app.security.datastore.find_user(id=current_user.id)
-    reports = user.fraud_reports
-    history = [
-        {
-            'id': report.id,
-            'title': report.title,
-            'description': report.description,
-            'fraud_score': report.fraud_score
-        } for report in reports
-    ]
-    return jsonify(history), 200
-  
