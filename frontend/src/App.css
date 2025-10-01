@@ -1,42 +1,120 @@
-#root {
-  max-width: 1280px;
-  margin: 0 auto;
-  padding: 2rem;
-  text-align: center;
+@font-face {
+  font-family: 'JomolhariReg';
+  src: url('./fonts/jomolhari_regular.ttf') format('truetype');
+  font-weight: normal;
+  font-style: normal;
 }
 
-.logo {
-  height: 6em;
-  padding: 1.5em;
-  will-change: filter;
-  transition: filter 300ms;
-}
-.logo:hover {
-  filter: drop-shadow(0 0 2em #646cffaa);
-}
-.logo.react:hover {
-  filter: drop-shadow(0 0 2em #61dafbaa);
+body, html {
+  margin: 0;
+  padding: 0;
+  height: 100%;
 }
 
-@keyframes logo-spin {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
+
+.main-screen-container {
+	min-height: 100vh;
+	display: flex;
+	flex-direction: column;
+	background: #f7f9fb;
 }
 
-@media (prefers-reduced-motion: no-preference) {
-  a:nth-of-type(2) .logo {
-    animation: logo-spin infinite 20s linear;
-  }
+header {
+	background: #222;
+	color: #fff;
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	padding: 0;
 }
 
-.card {
-  padding: 2em;
+header h1 {
+	margin: 0;
+	font-weight: 700;
+	font-size: 2rem;
+	letter-spacing: 1px;
 }
 
-.read-the-docs {
-  color: #888;
+header button {
+	margin-right: 1rem;
+	padding: 0.5rem 1.2rem;
+	border-radius: 5px;
+	border: none;
+	background: #4f8cff;
+	color: #fff;
+	font-weight: 600;
+	cursor: pointer;
+	transition: background 0.2s, color 0.2s;
+}
+
+header button:last-child {
+	margin-right: 0;
+	background: #fff;
+	color: #4f8cff;
+	border: 2px solid #4f8cff;
+}
+
+header button:hover {
+	background: #2563eb;
+	color: #fff;
+}
+
+header button:last-child:hover {
+	background: #e6f0ff;
+	color: #2563eb;
+}
+
+main {
+	flex: 1;
+	padding: 0;
+	background: #f7f9fb;
+}
+
+main h2 {
+	font-size: 2rem;
+	font-weight: 600;
+	margin-bottom: 1.5rem;
+}
+
+main p {
+	font-size: 1.2rem;
+	color: #444;
+	margin-bottom: 2rem;
+}
+
+footer {
+	background: #222;
+	color: #fff;
+	padding: 0;
+}
+
+footer .footer-columns {
+	display: flex;
+	justify-content: space-between;
+	max-width: 1100px;
+	margin: 0 auto;
+	flex-wrap: wrap;
+}
+
+footer h4 {
+	color: #4f8cff;
+	margin-bottom: 0.7rem;
+}
+
+footer ul {
+	list-style: none;
+	padding: 0;
+	color: #ccc;
+	margin: 0;
+}
+
+footer li {
+	margin-bottom: 0.4rem;
+}
+
+footer .footer-bottom {
+	text-align: center;
+	color: #888;
+	margin-top: 1.5rem;
+	font-size: 0.95rem;
 }
