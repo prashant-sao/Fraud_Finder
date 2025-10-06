@@ -1,13 +1,19 @@
 import React, { useState } from "react";
 import "./App.css";
+import LoginScreen from "./login_screen";
 import SignUpPage from "./sign_up_page";
 
 
 const MainScreen = () => {
     const [showSignUp, setShowSignUp] = useState(false);
+    const [showLogin, setShowLogin] = useState(false);
+
 
     if (showSignUp) {
         return <SignUpPage onBack={() => setShowSignUp(false)} />;
+    }
+    if (showLogin) {
+        return <LoginScreen onBack={() => setShowLogin(false)} />;
     }
 
     return (
@@ -22,11 +28,15 @@ const MainScreen = () => {
                     >
                         Sign Up
                     </button>
-                    <button style={{ fontFamily: 'JomolhariReg', padding: "0.5rem 1.2rem", borderRadius: "5px", border: "none", background: "#5c5c5cff", color: "#fff", fontWeight: 600, cursor: "pointer" }}>Log In</button>
+                    <button
+                        style={{ fontFamily: 'JomolhariReg', padding: "0.5rem 1.2rem", borderRadius: "5px", border: "none", background: "#5c5c5cff", color: "#fff", fontWeight: 600, cursor: "pointer" }}
+                        onClick={() => setShowLogin(true)}
+                    >
+                        Log In
+                    </button>
                 </div>
             </header>
 
-            {/* ...existing code for main and footer... */}
             <main style={{ flex: 1, padding: "3rem 2rem", background: "#f7f9fb" }}>
                 <div style={{
                     maxWidth: 1200,
@@ -37,7 +47,6 @@ const MainScreen = () => {
                     height: "100%",
                     gap: "2rem"
                 }}>
-                    {/* Main Box */}
                     <div style={{
                         background: "#fff",
                         borderRadius: "25px",
@@ -120,46 +129,11 @@ const MainScreen = () => {
                                 fontWeight: 600,
                                 cursor: "pointer"
                             }}>Analyze Job Posting</button>
+
                         </div>
                     </div>
-                    {/* Alerts Container */}
-                    <div style={{
-                        width: "320px",
-                        minHeight: "340px",
-                        background: "#f5f7fa",
-                        borderRadius: "18px",
-                        boxShadow: "0 2px 12px rgba(44, 62, 80, 0.08)",
-                        border: "1px solid #e0e0e0",
-                        display: "flex",
-                        flexDirection: "column",
-                        alignItems: "stretch",
-                        padding: "1.2rem 1rem 1rem 1rem"
-                    }}>
-                        <h3 style={{ fontFamily: 'JomolhariReg', margin: 0, marginBottom: "1rem", color: "#1C2331", fontWeight: 600, fontSize: "1.1rem", textAlign: "center" }}>Latest Alerts</h3>
-                        <div style={{ flex: 1, overflowY: "auto", marginBottom: "1rem" }}>
-                            {/* Example alerts, replace with dynamic content as needed */}
-                            <div style={{ background: "#fff", borderRadius: "8px", padding: "0.7rem 1rem", marginBottom: "0.7rem", boxShadow: "0 1px 4px rgba(44,62,80,0.04)" }}>
-                                <span style={{ color: "#c62828", fontWeight: 600 }}>Scam Alert:</span> Fake interview requests reported today.
-                            </div>
-                            <div style={{ background: "#fff", borderRadius: "8px", padding: "0.7rem 1rem", marginBottom: "0.7rem", boxShadow: "0 1px 4px rgba(44,62,80,0.04)" }}>
-                                <span style={{ color: "#c62828", fontWeight: 600 }}>Warning:</span> Suspicious company domain detected.
-                            </div>
-                            <div style={{ background: "#fff", borderRadius: "8px", padding: "0.7rem 1rem", marginBottom: "0.7rem", boxShadow: "0 1px 4px rgba(44,62,80,0.04)" }}>
-                                <span style={{ color: "#c62828", fontWeight: 600 }}>Notice:</span> New scam pattern identified in job offers.
-                            </div>
-                        </div>
-                        <button style={{
-                            fontFamily: 'JomolhariReg',
-                            padding: "0.6rem 0",
-                            borderRadius: "6px",
-                            border: "none",
-                            background: "#2C3E50",
-                            color: "#fff",
-                            fontWeight: 600,
-                            cursor: "pointer",
-                            fontSize: "1rem",
-                            width: "100%"
-                        }}>Load More</button>
+                    <div style={{ display: "flex", alignItems: "center", height: "100%" }}>
+                        <img src="src/assets/sample.png" alt="sample" style={{ maxWidth: "350px", borderRadius: "15px", boxShadow: "0 10px 15px rgba(44,62,80,0.10)" }} />
                     </div>
                 </div>
             </main>

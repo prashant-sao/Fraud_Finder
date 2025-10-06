@@ -1,28 +1,10 @@
 import React, { useState } from "react";
 import "./App.css";
 
-const professions = [
-    "Student",
-    "Recent Graduate",
-    "Working Professional",
-    "Job Seeking Professional",
-];
-
-const interests = [
-    "Technology",
-    "Finance",
-    "Healthcare",
-    "Education",
-    "Other"
-];
-
-const SignUpPage = ({ onBack }) => {
+const LoginScreen = ({ onBack }) => {
     const [form, setForm] = useState({
-        name: "",
         email: "",
-        password: "",
-        profession: "",
-        interest: ""
+        password: ""
     });
 
     const handleChange = (e) => {
@@ -32,8 +14,8 @@ const SignUpPage = ({ onBack }) => {
 
     const handleSubmit = (e) => {
         e.preventDefault();
-        // Handle signup logic here
-        alert("Sign up submitted!\n" + JSON.stringify(form, null, 2));
+        // Handle login logic here
+        alert("Login submitted!\n" + JSON.stringify(form, null, 2));
     };
 
     return (
@@ -54,16 +36,7 @@ const SignUpPage = ({ onBack }) => {
                 flexDirection: "column",
                 alignItems: "center"
             }}>
-                <h2 style={{ fontFamily: 'JomolhariReg', textAlign: "center", marginBottom: "2rem", fontSize: 36, fontWeight: 500 }}>Sign Up</h2>
-                <input
-                    type="text"
-                    name="name"
-                    value={form.name}
-                    onChange={handleChange}
-                    required
-                    placeholder="Enter your name"
-                    style={{ width: "100%", maxWidth: 500, marginBottom: 24, padding: "1rem", borderRadius: 12, border: "1.5px solid #e0e0e0", fontSize: 20, background: "#f9f9f9", outline: "none" }}
-                />
+                <h2 style={{ fontFamily: 'JomolhariReg', textAlign: "center", marginBottom: "2rem", fontSize: 36, fontWeight: 500 }}>Log In</h2>
                 <input
                     type="email"
                     name="email"
@@ -82,37 +55,13 @@ const SignUpPage = ({ onBack }) => {
                     placeholder="Enter your password"
                     style={{ width: "100%", maxWidth: 500, marginBottom: 24, padding: "1rem", borderRadius: 12, border: "1.5px solid #e0e0e0", fontSize: 20, background: "#f9f9f9", outline: "none" }}
                 />
-                <select
-                    name="profession"
-                    value={form.profession}
-                    onChange={handleChange}
-                    required
-                    style={{ width: "100%", maxWidth: 538, marginBottom: 24, padding: "1rem", borderRadius: 12, border: "1.5px solid #e0e0e0", fontSize: 20, background: "#f9f9f9", color: form.profession ? "#222" : "#7c7979ff", outline: "none" }}
-                >
-                    <option value="" disabled>Choose your profession</option>
-                    {professions.map((prof) => (
-                        <option key={prof} value={prof}>{prof}</option>
-                    ))}
-                </select>
-                <select
-                    name="interest"
-                    value={form.interest || ""}
-                    onChange={handleChange}
-                    required
-                    style={{ width: "100%", maxWidth: 538, marginBottom: 24, padding: "1rem", borderRadius: 12, border: "1.5px solid #e0e0e0", fontSize: 20, background: "#f9f9f9", color: form.interest ? "#222" : "#7c7979ff", outline: "none" }}
-                >
-                    <option value="" disabled>Choose your interest</option>
-                    {interests.map((interest) => (
-                        <option key={interest} value={interest}>{interest}</option>
-                    ))}
-                </select>
                 <p style={{ marginBottom: 16, fontSize: 16 }}>
-                    Already have an account?{" "}
+                    Don't have an account?{" "}
                     <span
                         style={{ color: "#2ad0c4", textDecoration: "underline", fontWeight: 600, cursor: "pointer" }}
-                        onClick={() => onBack("login")}
+                        onClick={() => onBack("signup")}
                     >
-                        Log in here
+                        Sign up here
                     </span>
                 </p>
                 <button type="submit" style={{
@@ -128,10 +77,10 @@ const SignUpPage = ({ onBack }) => {
                     cursor: "pointer",
                     marginTop: 16,
                     letterSpacing: 1
-                }}>CONTINUE</button>
+                }}>LOG IN</button>
             </form>
         </div>
     );
 };
 
-export default SignUpPage;
+export default LoginScreen;
