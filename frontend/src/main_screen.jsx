@@ -45,7 +45,8 @@ const MainScreen = () => {
                     justifyContent: "center",
                     alignItems: "flex-start",
                     height: "100%",
-                    gap: "2rem"
+                    gap: "2rem",
+                    marginRight: "1rem"
                 }}>
                     <div style={{
                         background: "#fff",
@@ -55,7 +56,8 @@ const MainScreen = () => {
                         maxWidth: "800px",
                         textAlign: "center",
                         border: "2px solid #e0e0e0",
-                        overflow: "hidden"
+                        overflow: "hidden",
+                        marginRight: "1rem"
                     }}>
                         <div style={{
                             background: "#DDDCDC",
@@ -132,8 +134,8 @@ const MainScreen = () => {
 
                         </div>
                     </div>
-                    <div style={{ display: "flex", alignItems: "center", height: "100%" }}>
-                        <img src="src/assets/sample.png" alt="sample" style={{ maxWidth: "350px", borderRadius: "15px", boxShadow: "0 10px 15px rgba(44,62,80,0.10)" }} />
+                    <div style={{ display: "flex", alignItems: "right", height: "100%" }}>
+                        <img src="src/assets/sample.png" alt="sample" style={{ maxWidth: "350px", borderRadius: "15px", boxShadow: "0 10px 15px rgba(44,62,80,0.10)"}} />
                     </div>
                 </div>
             </main>
