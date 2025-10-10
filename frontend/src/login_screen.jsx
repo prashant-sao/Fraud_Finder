@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import "./App.css";
 
-const LoginScreen = ({ onBack }) => {
+const LoginScreen = ({ onBack, onAuthSuccess }) => {
     const [form, setForm] = useState({
         email: "",
         password: ""
@@ -16,6 +16,9 @@ const LoginScreen = ({ onBack }) => {
         e.preventDefault();
         // Handle login logic here
         alert("Login submitted!\n" + JSON.stringify(form, null, 2));
+        if (onAuthSuccess) {
+            onAuthSuccess(form.email);
+        }
     };
 
     return (

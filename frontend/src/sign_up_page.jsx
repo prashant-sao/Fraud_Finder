@@ -16,7 +16,7 @@ const interests = [
     "Other"
 ];
 
-const SignUpPage = ({ onBack }) => {
+const SignUpPage = ({ onBack, onAuthSuccess }) => {
     const [form, setForm] = useState({
         name: "",
         email: "",
@@ -34,6 +34,9 @@ const SignUpPage = ({ onBack }) => {
         e.preventDefault();
         // Handle signup logic here
         alert("Sign up submitted!\n" + JSON.stringify(form, null, 2));
+        if (onAuthSuccess) {
+            onAuthSuccess(form.name);
+        }
     };
 
     return (

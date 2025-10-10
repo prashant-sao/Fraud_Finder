@@ -4,16 +4,24 @@ import LoginScreen from "./login_screen";
 import SignUpPage from "./sign_up_page";
 
 
+
 const MainScreen = () => {
     const [showSignUp, setShowSignUp] = useState(false);
     const [showLogin, setShowLogin] = useState(false);
+    const [userName, setUserName] = useState("");
 
+    // Handler for successful login/signup
+    const handleAuthSuccess = (name) => {
+        setUserName(name);
+        setShowSignUp(false);
+        setShowLogin(false);
+    };
 
     if (showSignUp) {
-        return <SignUpPage onBack={() => setShowSignUp(false)} />;
+        return <SignUpPage onBack={() => setShowSignUp(false)} onAuthSuccess={handleAuthSuccess} />;
     }
     if (showLogin) {
-        return <LoginScreen onBack={() => setShowLogin(false)} />;
+        return <LoginScreen onBack={() => setShowLogin(false)} onAuthSuccess={handleAuthSuccess} />;
     }
 
     return (
@@ -22,18 +30,26 @@ const MainScreen = () => {
                 <img src="src/assets/logo.png" alt="Fraud Finder Logo" style={{ height: "40px" }} />
                 <h2 style={{ fontFamily: 'JomolhariReg' }}>Spot fake job postings before you apply</h2>
                 <div>
-                    <button
-                        style={{ fontFamily: 'JomolhariReg', marginRight: "1rem", padding: "0.5rem 1.2rem", borderRadius: "5px", border: "none", background: "#5c5c5cff", color: "#fff", fontWeight: 600, cursor: "pointer" }}
-                        onClick={() => setShowSignUp(true)}
-                    >
-                        Sign Up
-                    </button>
-                    <button
-                        style={{ fontFamily: 'JomolhariReg', padding: "0.5rem 1.2rem", borderRadius: "5px", border: "none", background: "#5c5c5cff", color: "#fff", fontWeight: 600, cursor: "pointer" }}
-                        onClick={() => setShowLogin(true)}
-                    >
-                        Log In
-                    </button>
+                    {userName ? (
+                        <span style={{ fontFamily: 'JomolhariReg', fontWeight: 600, fontSize: 20, color: "#32BCAE", marginRight: "1rem" }}>
+                            Welcome, {userName}
+                        </span>
+                    ) : (
+                        <>
+                            <button
+                                style={{ fontFamily: 'JomolhariReg', marginRight: "1rem", padding: "0.5rem 1.2rem", borderRadius: "5px", border: "none", background: "#5c5c5cff", color: "#fff", fontWeight: 600, cursor: "pointer" }}
+                                onClick={() => setShowSignUp(true)}
+                            >
+                                Sign Up
+                            </button>
+                            <button
+                                style={{ fontFamily: 'JomolhariReg', padding: "0.5rem 1.2rem", borderRadius: "5px", border: "none", background: "#5c5c5cff", color: "#fff", fontWeight: 600, cursor: "pointer" }}
+                                onClick={() => setShowLogin(true)}
+                            >
+                                Log In
+                            </button>
+                        </>
+                    )}
                 </div>
             </header>
 
@@ -135,7 +151,7 @@ const MainScreen = () => {
                         </div>
                     </div>
                     <div style={{ display: "flex", alignItems: "right", height: "100%" }}>
-                        <img src="src/assets/sample.png" alt="sample" style={{ maxWidth: "350px", borderRadius: "15px", boxShadow: "0 10px 15px rgba(44,62,80,0.10)"}} />
+                        <img src="src/assets/sample.png" alt="sample" style={{ maxWidth: "350px", borderRadius: "15px", boxShadow: "0 10px 15px rgba(44,62,80,0.10)" }} />
                     </div>
                 </div>
             </main>
