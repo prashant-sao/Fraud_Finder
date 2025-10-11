@@ -9,6 +9,7 @@ const MainScreen = () => {
     const [showSignUp, setShowSignUp] = useState(false);
     const [showLogin, setShowLogin] = useState(false);
     const [userName, setUserName] = useState("");
+    
 
     // Handler for successful login/signup
     const handleAuthSuccess = (name) => {

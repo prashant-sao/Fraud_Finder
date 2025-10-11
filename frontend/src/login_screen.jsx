@@ -1,23 +1,55 @@
 import React, { useState } from "react";
 import "./App.css";
+import api from "./services/api";
 
 const LoginScreen = ({ onBack, onAuthSuccess }) => {
     const [form, setForm] = useState({
         email: "",
         password: ""
     });
+    const [error, setError] = useState("");
+    const [loading, setLoading] = useState(false);
 
     const handleChange = (e) => {
         const { name, value } = e.target;
         setForm((prev) => ({ ...prev, [name]: value }));
+        // Clear error when user starts typing
+        if (error) setError("");
     };
 
-    const handleSubmit = (e) => {
+    const handleSubmit = async (e) => {
         e.preventDefault();
         // Handle login logic here
         alert("Login submitted!\n" + JSON.stringify(form, null, 2));
         if (onAuthSuccess) {
             onAuthSuccess(form.email);
+        setError("");
+        setLoading(true);
+
+        try {
+            const response = await api.login({
+                email: form.email,
+                password: form.password
+            });
+            
+            // Success!
+            console.log('Login successful:', response);
+            
+            // Store user data in localStorage
+            localStorage.setItem('user', JSON.stringify(response.user));
+            localStorage.setItem('isLoggedIn', 'true');
+            
+            // Show success message
+            alert('Login successful! Welcome back, ' + response.user.username);
+            
+            // Navigate back to main screen or dashboard
+            onBack();
+            
+        } catch (err) {
+            console.error('Login error:', err);
+            setError(err.message || 'Invalid email or password. Please try again.');
+        } finally {
+            setLoading(false);
         }
     };
 
@@ -40,6 +72,25 @@ const LoginScreen = ({ onBack, onAuthSuccess }) => {
                 alignItems: "center"
             }}>
                 <h2 style={{ fontFamily: 'JomolhariReg', textAlign: "center", marginBottom: "2rem", fontSize: 36, fontWeight: 500 }}>Log In</h2>
+                
+                {/* Error Message */}
+                {error && (
+                    <div style={{
+                        width: "100%",
+                        maxWidth: 500,
+                        padding: "1rem",
+                        marginBottom: 16,
+                        background: "#ffebee",
+                        color: "#c62828",
+                        borderRadius: 12,
+                        fontSize: 16,
+                        textAlign: "center",
+                        fontFamily: 'JomolhariReg'
+                    }}>
+                        {error}
+                    </div>
+                )}
+
                 <input
                     type="email"
                     name="email"
@@ -47,7 +98,19 @@ const LoginScreen = ({ onBack, onAuthSuccess }) => {
                     onChange={handleChange}
                     required
                     placeholder="Enter your email"
-                    style={{ width: "100%", maxWidth: 500, marginBottom: 24, padding: "1rem", borderRadius: 12, border: "1.5px solid #e0e0e0", fontSize: 20, background: "#f9f9f9", outline: "none" }}
+                    disabled={loading}
+                    style={{ 
+                        width: "100%", 
+                        maxWidth: 500, 
+                        marginBottom: 24, 
+                        padding: "1rem", 
+                        borderRadius: 12, 
+                        border: "1.5px solid #e0e0e0", 
+                        fontSize: 20, 
+                        background: loading ? "#e0e0e0" : "#f9f9f9", 
+                        outline: "none",
+                        cursor: loading ? "not-allowed" : "text"
+                    }}
                 />
                 <input
                     type="password"
@@ -56,9 +119,21 @@ const LoginScreen = ({ onBack, onAuthSuccess }) => {
                     onChange={handleChange}
                     required
                     placeholder="Enter your password"
-                    style={{ width: "100%", maxWidth: 500, marginBottom: 24, padding: "1rem", borderRadius: 12, border: "1.5px solid #e0e0e0", fontSize: 20, background: "#f9f9f9", outline: "none" }}
+                    disabled={loading}
+                    style={{ 
+                        width: "100%", 
+                        maxWidth: 500, 
+                        marginBottom: 24, 
+                        padding: "1rem", 
+                        borderRadius: 12, 
+                        border: "1.5px solid #e0e0e0", 
+                        fontSize: 20, 
+                        background: loading ? "#e0e0e0" : "#f9f9f9", 
+                        outline: "none",
+                        cursor: loading ? "not-allowed" : "text"
+                    }}
                 />
-                <p style={{ marginBottom: 16, fontSize: 16 }}>
+                <p style={{ marginBottom: 16, fontSize: 16, fontFamily: 'JomolhariReg' }}>
                     Don't have an account?{" "}
                     <span
                         style={{ color: "#2ad0c4", textDecoration: "underline", fontWeight: 600, cursor: "pointer" }}
@@ -67,20 +142,27 @@ const LoginScreen = ({ onBack, onAuthSuccess }) => {
                         Sign up here
                     </span>
                 </p>
-                <button type="submit" style={{
-                    width: 220,
-                    padding: "1rem",
-                    borderRadius: 16,
-                    border: "none",
-                    background: "#2ad0c4",
-                    color: "#fff",
-                    fontWeight: 700,
-                    fontSize: 18,
-                    fontFamily: 'JomolhariReg',
-                    cursor: "pointer",
-                    marginTop: 16,
-                    letterSpacing: 1
-                }}>LOG IN</button>
+                <button 
+                    type="submit" 
+                    disabled={loading}
+                    style={{
+                        width: 220,
+                        padding: "1rem",
+                        borderRadius: 16,
+                        border: "none",
+                        background: loading ? "#b0b0b0" : "#2ad0c4",
+                        color: "#fff",
+                        fontWeight: 700,
+                        fontSize: 18,
+                        fontFamily: 'JomolhariReg',
+                        cursor: loading ? "not-allowed" : "pointer",
+                        marginTop: 16,
+                        letterSpacing: 1,
+                        opacity: loading ? 0.7 : 1
+                    }}
+                >
+                    {loading ? "LOGGING IN..." : "LOG IN"}
+                </button>
             </form>
         </div>
     );
