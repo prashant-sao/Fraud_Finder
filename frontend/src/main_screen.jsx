@@ -7,6 +7,7 @@ import SignUpPage from "./sign_up_page";
 const MainScreen = () => {
     const [showSignUp, setShowSignUp] = useState(false);
     const [showLogin, setShowLogin] = useState(false);
+    
 
 
     if (showSignUp) {

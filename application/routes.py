@@ -14,6 +14,8 @@ from application.agent.scam_checker import add_scam_to_database
 
 api_bp = Blueprint('api_bp', __name__)
 
+
+
 # Initialize the corporate agent
 fraud_detector = CorporateAgent()
 
@@ -23,7 +25,7 @@ logger = logging.getLogger(__name__)
 
 @api_bp.route('/')
 def index():
-    return render_template('index.html')
+    return render_template('frontend/index.html')
 
 @api_bp.route('/api/register', methods=['POST'])
 def register():
@@ -63,13 +65,15 @@ def register():
 def login():
     try:
         data = request.get_json()
-        username = data.get('username')
+        email = data.get('email')  # Changed from username to email
         password = data.get('password')
 
-        if not username or not password:
-            return jsonify({'message': 'Username and password are required!'}), 400
+        if not email or not password:
+            return jsonify({'message': 'Email and password are required!'}), 400
 
-        user = api_bp.security.datastore.find_user(username=username)
+        # Find user by email
+        user = api_bp.security.datastore.find_user(email=email)
+        
         if user and check_password_hash(user.password, password):
             login_user(user)
             return jsonify({
@@ -81,7 +85,7 @@ def login():
                 }
             }), 200
         else:
-            return jsonify({'message': 'Invalid username or password!'}), 401
+            return jsonify({'message': 'Invalid email or password!'}), 401
             
     except Exception as e:
         logger.error(f"Login error: {str(e)}")
@@ -245,24 +249,24 @@ def generate_recommendations(analysis_result, risk_score):
     recommendations = []
     
     if risk_score >= 60:
-        recommendations.append("❌ Do not proceed with this job opportunity")
-        recommendations.append("🚨 Report this posting to the job board")
+        recommendations.append("Do not proceed with this job opportunity")
+        recommendations.append("Report this posting to the job board")
         
     if analysis_result['red_flags']:
-        recommendations.append("⚠️ Multiple red flags detected - exercise extreme caution")
+        recommendations.append("Multiple red flags detected - exercise extreme caution")
         
     if not analysis_result['company_legitimacy']['website_exists']:
-        recommendations.append("🌐 Company website could not be verified")
+        recommendations.append("Company website could not be verified")
         
     if not analysis_result['company_legitimacy']['linkedin_exists']:
-        recommendations.append("💼 Company LinkedIn page not found")
+        recommendations.append("Company LinkedIn page not found")
         
     if analysis_result['scam_result']['email_flagged'] or analysis_result['scam_result']['phone_flagged']:
-        recommendations.append("📞 Contact information flagged in scam database")
+        recommendations.append("Contact information flagged in scam database")
         
     if risk_score < 40:
-        recommendations.append("✅ Job posting appears legitimate, but always verify independently")
-        recommendations.append("🔍 Research the company thoroughly before applying")
+        recommendations.append("Job posting appears legitimate, but always verify independently")
+        recommendations.append("Research the company thoroughly before applying")
         
     return recommendations
 
