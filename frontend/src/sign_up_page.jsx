@@ -14,7 +14,7 @@ const interests = [
     "Finance",
     "Healthcare",
     "Education",
-    "Other"
+    "Other",
 ];
 
 const SignUpPage = ({ onBack, onAuthSuccess }) => {
@@ -23,26 +23,24 @@ const SignUpPage = ({ onBack, onAuthSuccess }) => {
         email: "",
         password: "",
         qualification: "",
-        fields_of_interest: ""
+        fields_of_interest: "",
     });
+
     const [error, setError] = useState("");
     const [loading, setLoading] = useState(false);
 
     const handleChange = (e) => {
         const { name, value } = e.target;
         setForm((prev) => ({ ...prev, [name]: value }));
-        // Clear error when user starts typing
         if (error) setError("");
     };
 
     const handleSubmit = async (e) => {
         e.preventDefault();
-        // Handle signup logic here
-        alert("Sign up submitted!\n" + JSON.stringify(form, null, 2));
-        if (onAuthSuccess) {
-            onAuthSuccess(form.name);
-        setError("");
+        if (loading) return;
+
         setLoading(true);
+        setError("");
 
         try {
             const response = await api.register({
@@ -50,21 +48,21 @@ const SignUpPage = ({ onBack, onAuthSuccess }) => {
                 email: form.email,
                 password: form.password,
                 qualification: form.qualification,
-                fields_of_interest: form.fields_of_interest
+                fields_of_interest: form.fields_of_interest,
             });
-            
-            // Success!
-            console.log('Registration successful:', response);
-            
-            // Show success message
-            alert('Registration successful! Please log in with your credentials.');
-            
-            // Navigate to login screen
-            onBack("login");
-            
+
+            console.log("Registration successful:", response);
+
+            alert("Registration successful! Please log in with your credentials.");
+
+            // If you want to auto-login:
+            // onAuthSuccess(form.username);
+
+            onBack("login"); // Navigate to login screen
+
         } catch (err) {
-            console.error('Registration error:', err);
-            setError(err.message || 'Registration failed. Please try again.');
+            console.error("Registration error:", err);
+            setError(err.message || "Registration failed. Please try again.");
         } finally {
             setLoading(false);
         }
@@ -72,10 +70,11 @@ const SignUpPage = ({ onBack, onAuthSuccess }) => {
 
     return (
         <div style={{ minHeight: "100vh", background: "#2ad0c4", display: "flex", alignItems: "center", justifyContent: "center" }}>
-            <div style={{ position: "absolute", top: 32, left: 32, cursor: "pointer", fontSize: 28 }} onClick={onBack}>
+            <div style={{ position: "absolute", top: 32, left: 32, cursor: "pointer", fontSize: 28 }} onClick={() => onBack()}>
                 <span style={{ fontWeight: 600 }}>&larr;</span>
             </div>
             <img src="src/assets/logo.png" alt="Fraud Finder Logo" style={{ position: "absolute", top: 32, right: 32, height: "40px" }} />
+
             <form onSubmit={handleSubmit} style={{
                 background: "#f7f7f7",
                 borderRadius: "25px",
@@ -89,8 +88,7 @@ const SignUpPage = ({ onBack, onAuthSuccess }) => {
                 alignItems: "center"
             }}>
                 <h2 style={{ fontFamily: 'JomolhariReg', textAlign: "center", marginBottom: "2rem", fontSize: 36, fontWeight: 500 }}>Sign Up</h2>
-                
-                {/* Error Message */}
+
                 {error && (
                     <div style={{
                         width: "100%",
@@ -116,19 +114,9 @@ const SignUpPage = ({ onBack, onAuthSuccess }) => {
                     required
                     placeholder="Enter your username"
                     disabled={loading}
-                    style={{ 
-                        width: "100%", 
-                        maxWidth: 500, 
-                        marginBottom: 24, 
-                        padding: "1rem", 
-                        borderRadius: 12, 
-                        border: "1.5px solid #e0e0e0", 
-                        fontSize: 20, 
-                        background: loading ? "#e0e0e0" : "#f9f9f9", 
-                        outline: "none",
-                        cursor: loading ? "not-allowed" : "text"
-                    }}
+                    style={inputStyle(loading)}
                 />
+
                 <input
                     type="email"
                     name="email"
@@ -137,19 +125,9 @@ const SignUpPage = ({ onBack, onAuthSuccess }) => {
                     required
                     placeholder="Enter your email"
                     disabled={loading}
-                    style={{ 
-                        width: "100%", 
-                        maxWidth: 500, 
-                        marginBottom: 24, 
-                        padding: "1rem", 
-                        borderRadius: 12, 
-                        border: "1.5px solid #e0e0e0", 
-                        fontSize: 20, 
-                        background: loading ? "#e0e0e0" : "#f9f9f9", 
-                        outline: "none",
-                        cursor: loading ? "not-allowed" : "text"
-                    }}
+                    style={inputStyle(loading)}
                 />
+
                 <input
                     type="password"
                     name="password"
@@ -157,71 +135,39 @@ const SignUpPage = ({ onBack, onAuthSuccess }) => {
                     onChange={handleChange}
                     required
                     placeholder="Enter your password"
-                    disabled={loading}
                     minLength={6}
-                    style={{ 
-                        width: "100%", 
-                        maxWidth: 500, 
-                        marginBottom: 24, 
-                        padding: "1rem", 
-                        borderRadius: 12, 
-                        border: "1.5px solid #e0e0e0", 
-                        fontSize: 20, 
-                        background: loading ? "#e0e0e0" : "#f9f9f9", 
-                        outline: "none",
-                        cursor: loading ? "not-allowed" : "text"
-                    }}
+                    disabled={loading}
+                    style={inputStyle(loading)}
                 />
+
                 <select
                     name="qualification"
                     value={form.qualification}
                     onChange={handleChange}
                     required
                     disabled={loading}
-                    style={{ 
-                        width: "100%", 
-                        maxWidth: 538, 
-                        marginBottom: 24, 
-                        padding: "1rem", 
-                        borderRadius: 12, 
-                        border: "1.5px solid #e0e0e0", 
-                        fontSize: 20, 
-                        background: loading ? "#e0e0e0" : "#f9f9f9", 
-                        color: form.qualification ? "#222" : "#7c7979ff", 
-                        outline: "none",
-                        cursor: loading ? "not-allowed" : "pointer"
-                    }}
+                    style={selectStyle(loading, form.qualification)}
                 >
                     <option value="" disabled>Choose your profession</option>
                     {professions.map((prof) => (
                         <option key={prof} value={prof}>{prof}</option>
                     ))}
                 </select>
+
                 <select
                     name="fields_of_interest"
-                    value={form.fields_of_interest || ""}
+                    value={form.fields_of_interest}
                     onChange={handleChange}
                     required
                     disabled={loading}
-                    style={{ 
-                        width: "100%", 
-                        maxWidth: 538, 
-                        marginBottom: 24, 
-                        padding: "1rem", 
-                        borderRadius: 12, 
-                        border: "1.5px solid #e0e0e0", 
-                        fontSize: 20, 
-                        background: loading ? "#e0e0e0" : "#f9f9f9", 
-                        color: form.fields_of_interest ? "#222" : "#7c7979ff", 
-                        outline: "none",
-                        cursor: loading ? "not-allowed" : "pointer"
-                    }}
+                    style={selectStyle(loading, form.fields_of_interest)}
                 >
                     <option value="" disabled>Choose your interest</option>
                     {interests.map((interest) => (
                         <option key={interest} value={interest}>{interest}</option>
                     ))}
                 </select>
+
                 <p style={{ marginBottom: 16, fontSize: 16, fontFamily: 'JomolhariReg' }}>
                     Already have an account?{" "}
                     <span
@@ -231,8 +177,9 @@ const SignUpPage = ({ onBack, onAuthSuccess }) => {
                         Log in here
                     </span>
                 </p>
-                <button 
-                    type="submit" 
+
+                <button
+                    type="submit"
                     disabled={loading}
                     style={{
                         width: 220,
@@ -256,5 +203,33 @@ const SignUpPage = ({ onBack, onAuthSuccess }) => {
         </div>
     );
 };
+
+// Reusable styles
+const inputStyle = (loading) => ({
+    width: "100%",
+    maxWidth: 500,
+    marginBottom: 24,
+    padding: "1rem",
+    borderRadius: 12,
+    border: "1.5px solid #e0e0e0",
+    fontSize: 20,
+    background: loading ? "#e0e0e0" : "#f9f9f9",
+    outline: "none",
+    cursor: loading ? "not-allowed" : "text"
+});
+
+const selectStyle = (loading, hasValue) => ({
+    width: "100%",
+    maxWidth: 538,
+    marginBottom: 24,
+    padding: "1rem",
+    borderRadius: 12,
+    border: "1.5px solid #e0e0e0",
+    fontSize: 20,
+    background: loading ? "#e0e0e0" : "#f9f9f9",
+    color: hasValue ? "#222" : "#7c7979ff",
+    outline: "none",
+    cursor: loading ? "not-allowed" : "pointer"
+});
 
 export default SignUpPage;
