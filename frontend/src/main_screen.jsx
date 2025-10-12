@@ -1,7 +1,9 @@
 import React, { useState } from "react";
 import "./App.css";
+
 import LoginScreen from "./login_screen";
 import SignUpPage from "./sign_up_page";
+import ProfilePage from "./profile_page";
 
 
 
@@ -9,6 +11,7 @@ const MainScreen = () => {
     const [showSignUp, setShowSignUp] = useState(false);
     const [showLogin, setShowLogin] = useState(false);
     const [userName, setUserName] = useState("");
+    const [showProfile, setShowProfile] = useState(false);
     
 
     // Handler for successful login/signup
@@ -24,6 +27,9 @@ const MainScreen = () => {
     if (showLogin) {
         return <LoginScreen onBack={() => setShowLogin(false)} onAuthSuccess={handleAuthSuccess} />;
     }
+    if (showProfile) {
+        return <ProfilePage userName={userName} onBack={() => setShowProfile(false)} />;
+    }
 
     return (
         <div className="main-screen-container" style={{ minHeight: "100vh", display: "flex", flexDirection: "column" }}>
@@ -32,7 +38,10 @@ const MainScreen = () => {
                 <h2 style={{ fontFamily: 'JomolhariReg' }}>Spot fake job postings before you apply</h2>
                 <div>
                     {userName ? (
-                        <span style={{ fontFamily: 'JomolhariReg', fontWeight: 600, fontSize: 20, color: "#32BCAE", marginRight: "1rem" }}>
+                        <span
+                            style={{ fontFamily: 'JomolhariReg', fontWeight: 600, fontSize: 20, color: "#32BCAE", marginRight: "1rem", cursor: "pointer", textDecoration: "underline" }}
+                            onClick={() => setShowProfile(true)}
+                        >
                             Welcome, {userName}
                         </span>
                     ) : (
@@ -52,6 +61,10 @@ const MainScreen = () => {
                         </>
                     )}
                 </div>
+                <button
+                    style={{ fontFamily: 'JomolhariReg', fontWeight: 600, fontSize: 20, color: "#32BCAE", marginRight: "1rem", cursor: "pointer", textDecoration: "underline" }}
+                    onClick={() => setShowProfile(true)}>Profile
+                </button>
             </header>
 
             <main style={{ flex: 1, padding: "3rem 2rem", background: "#f7f9fb" }}>
