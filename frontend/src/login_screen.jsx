@@ -19,10 +19,6 @@ const LoginScreen = ({ onBack, onAuthSuccess }) => {
 
     const handleSubmit = async (e) => {
         e.preventDefault();
-        // Handle login logic here
-        alert("Login submitted!\n" + JSON.stringify(form, null, 2));
-        if (onAuthSuccess) {
-            onAuthSuccess(form.email);
         setError("");
         setLoading(true);
 
@@ -38,6 +34,11 @@ const LoginScreen = ({ onBack, onAuthSuccess }) => {
             // Store user data in localStorage
             localStorage.setItem('user', JSON.stringify(response.user));
             localStorage.setItem('isLoggedIn', 'true');
+            
+            // Call onAuthSuccess if provided
+            if (onAuthSuccess) {
+                onAuthSuccess(response.user);
+            }
             
             // Show success message
             alert('Login successful! Welcome back, ' + response.user.username);

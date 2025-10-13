@@ -37,10 +37,6 @@ const SignUpPage = ({ onBack, onAuthSuccess }) => {
 
     const handleSubmit = async (e) => {
         e.preventDefault();
-        // Handle signup logic here
-        alert("Sign up submitted!\n" + JSON.stringify(form, null, 2));
-        if (onAuthSuccess) {
-            onAuthSuccess(form.name);
         setError("");
         setLoading(true);
 
@@ -55,6 +51,11 @@ const SignUpPage = ({ onBack, onAuthSuccess }) => {
             
             // Success!
             console.log('Registration successful:', response);
+            
+            // Call onAuthSuccess if provided
+            if (onAuthSuccess) {
+                onAuthSuccess(form.username);
+            }
             
             // Show success message
             alert('Registration successful! Please log in with your credentials.');
