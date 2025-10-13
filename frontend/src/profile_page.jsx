@@ -3,6 +3,15 @@ import React, { useState } from "react";
 const ProfilePage = ({ userName, onBack }) => {
     const [selected, setSelected] = useState("history");
 
+    const handleLogout = () => {
+        localStorage.removeItem("user");
+        localStorage.removeItem("token");
+        localStorage.clear();
+        sessionStorage.clear();
+        if (typeof onBack === "function") onBack();
+    };
+
+
     const analysisHistory = [
         { id: 1, date: "2023-10-01", title: "Job Posting 1", result: "No issues detected" },
         { id: 2, date: "2023-10-05", title: "Job Posting 2", result: "Potential fraud detected: High salary promise" },
@@ -28,7 +37,7 @@ const ProfilePage = ({ userName, onBack }) => {
                     <span style={{ fontWeight: 600 }}>&larr;</span>
                 </div>
                 <div style={{ display: "flex", background: "#fff", borderRadius: "25px", boxShadow: "0 10px 25px rgba(44, 62, 80, 0.10)", minWidth: 700, minHeight: 400, width: "70%", maxWidth: 900 }}>
-                    <Sidebar userName={userName} onLogout={onBack} setSelected={setSelected} selected={selected} />
+                    <Sidebar userName={userName} onLogout={handleLogout} setSelected={setSelected} selected={selected} />
                     <MainContent selected={selected} analysisHistory={analysisHistory} downloadHistory={downloadHistory} />
                 </div>
             </main>
@@ -87,8 +96,11 @@ function Sidebar({ userName, onLogout, setSelected, selected }) {
                 <button
                     key={opt.key}
                     onClick={() => {
-                        setSelected(opt.key); // Set the selected section
-                        if (opt.key === "logout") onLogout();
+                        if (opt.key === "logout") {
+                            onLogout();
+                        } else {
+                            setSelected(opt.key);
+                        }
                     }}
                     style={{
                         width: "100%",
@@ -206,6 +218,37 @@ function MainContent({ selected, analysisHistory, downloadHistory }) {
                         <button type="submit" style={{ width: "100%", padding: "1rem", borderRadius: 16, border: "none", background: "#32BCAE", color: "#fff", fontWeight: 700, fontSize: 18, cursor: "pointer", marginTop: 16 }}>Save Changes</button>
                     </form>
                 </div>
+            );
+            break;
+        case "logout":
+            content = (
+                <button
+                    key={opt.key}
+                    onClick={() => {
+                        setSelected(opt.key); // Set the selected section
+                        if (opt.key === "logout") handleLogout(); // Use handleLogout
+                    }}
+                    style={{
+                        width: "100%",
+                        padding: "0.8rem 1rem",
+                        marginBottom: 18,
+                        borderRadius: 12,
+                        border: "none",
+                        background: selected === opt.key ? "#32BCAE" : "#fff",
+                        color: selected === opt.key ? "#fff" : "#222",
+                        fontWeight: 600,
+                        fontSize: 18,
+                        fontFamily: 'JomolhariReg',
+                        cursor: "pointer",
+                        boxShadow: selected === opt.key ? "0 2px 8px rgba(44,62,80,0.10)" : "none",
+                        display: "flex",
+                        alignItems: "center"
+                    }}
+                >
+                    <img src={opt.icon} alt="" style={{ marginRight: "0.7rem", height: 24, width: 24, verticalAlign: "middle" }} />
+                    {opt.label}
+                </button>
+
             );
             break;
         default:

@@ -1,84 +1,30 @@
 import React, { useState } from "react";
-import "./App.css";
 
-import LoginScreen from "./login_screen";
-import SignUpPage from "./sign_up_page";
-import ProfilePage from "./profile_page";
-import AnalysisPage from "./analysis_page";
+const AnalysisPage = ({ onBack }) => {
+    const [input, setInput] = useState("");
+    const [result, setResult] = useState(null);
 
-    const MainScreen = () => {
-    const [showSignUp, setShowSignUp] = useState(false);
-    const [showLogin, setShowLogin] = useState(false);
-    const [userName, setUserName] = useState("");
-    const [showProfile, setShowProfile] = useState(false);
-    const [showAnalysis, setShowAnalysis] = useState(false);
-
-    // Handler for successful login/signup
-    const handleAuthSuccess = (name) => {
-        setUserName(name);
-        setShowSignUp(false);
-        setShowLogin(false);
+    const handleAnalyze = (e) => {
+        e.preventDefault();
+        if (!input.trim()) {
+            setResult("Please enter a job posting URL or description.");
+        } else if (input.toLowerCase().includes("scam") || input.toLowerCase().includes("fraud")) {
+            setResult("Potential fraud detected!");
+        } else {
+            setResult("No issues detected.");
+        }
     };
 
-    if (showSignUp) {
-        return <SignUpPage onBack={() => setShowSignUp(false)} onAuthSuccess={handleAuthSuccess} />;
-    }
-    if (showLogin) {
-        return <LoginScreen onBack={() => setShowLogin(false)} onAuthSuccess={handleAuthSuccess} />;
-    }
-    if (showProfile) {
-        return <ProfilePage userName={userName} onBack={() => setShowProfile(false)} />;
-    }
-    if (showAnalysis) {
-        return <AnalysisPage onBack={() => setShowAnalysis(false)} />;
-    }
-
     return (
-        <div className="main-screen-container" style={{ minHeight: "100vh", display: "flex", flexDirection: "column" }}>
+        <div style={{ minHeight: "100vh", background: "#f7f9fb", display: "flex", flexDirection: "column" }}>
             <header style={{ background: "#DDDCDC", color: "#000000ff", padding: "1rem", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                 <img src="src/assets/logo.png" alt="Fraud Finder Logo" style={{ height: "40px" }} />
-                <h2 style={{ fontFamily: 'JomolhariReg' }}>Spot fake job postings before you apply</h2>
-                <div>
-                    {userName ? (
-                        <>
-                            <span
-                                style={{ fontFamily: 'JomolhariReg', fontWeight: 600, fontSize: 20, color: "#32BCAE", marginRight: "1rem", cursor: "pointer", textDecoration: "underline" }}
-                                onClick={() => setShowProfile(true)}
-                            >
-                                Welcome, {userName}
-                            </span>
-                        </>
-                    ) : (
-                        <>
-                            <button
-                                style={{ fontFamily: 'JomolhariReg', marginRight: "1rem", padding: "0.5rem 1.2rem", borderRadius: "25px", border: "none", background: "#5c5c5cff", color: "#fff", fontWeight: 600, cursor: "pointer" }}
-                                onClick={() => setShowSignUp(true)}
-                            >
-                                Sign Up
-                            </button>
-                            <button
-                                style={{ fontFamily: 'JomolhariReg', marginRight: "1rem", padding: "0.5rem 1.2rem", borderRadius: "25px", border: "none", background: "#5c5c5cff", color: "#fff", fontWeight: 600, cursor: "pointer" }}
-                                onClick={() => setShowLogin(true)}
-                            >
-                                Log In
-                            </button>
-                            
-                            <button
-                                style={{ fontFamily: 'JomolhariReg', marginRight: "1rem", padding: "0.5rem 1.2rem", borderRadius: "25px", border: "none", background: "#5c5c5cff", color: "#fff", fontWeight: 600, cursor: "pointer" }}
-                                onClick={() => setShowProfile(true)}
-                            >
-                                Profile
-                            </button>
-                            <button
-                                style={{ fontFamily: 'JomolhariReg', marginRight: "1rem", padding: "0.5rem 1.2rem", borderRadius: "25px", border: "none", background: "#5c5c5cff", color: "#fff", fontWeight: 600, cursor: "pointer" }}
-                                onClick={() => setShowAnalysis(true)}
-                            >
-                                Analysis Page
-                            </button>
-                        </>
-                    )}
-                </div>
+                <h2 style={{ fontFamily: 'JomolhariReg' }}>Analysis Page</h2>
             </header>
+
+            <div style={{ position: "absolute", top: 32, left: 32, cursor: "pointer", fontSize: 28 }} onClick={onBack}>
+                <span style={{ fontWeight: 600 }}>&larr;</span>
+            </div>
 
             <main style={{ flex: 1, padding: "3rem 2rem", background: "#f7f9fb" }}>
                 <div style={{
@@ -174,7 +120,6 @@ import AnalysisPage from "./analysis_page";
                                 fontWeight: 600,
                                 cursor: "pointer"
                             }}>Analyze Job Posting</button>
-
                         </div>
                     </div>
                     <div style={{ display: "flex", alignItems: "right", height: "100%" }}>
@@ -219,4 +164,4 @@ import AnalysisPage from "./analysis_page";
     );
 };
 
-export default MainScreen;
+export default AnalysisPage;
