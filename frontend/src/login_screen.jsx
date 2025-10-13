@@ -17,6 +17,7 @@ const LoginScreen = ({ onBack, onAuthSuccess }) => {
     if (error) setError("");
   };
 
+<<<<<<< HEAD
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (loading) return;  // Prevent double submission
@@ -28,6 +29,44 @@ const LoginScreen = ({ onBack, onAuthSuccess }) => {
         email: form.email,
         password: form.password
       });
+=======
+    const handleSubmit = async (e) => {
+        e.preventDefault();
+        setError("");
+        setLoading(true);
+
+        try {
+            const response = await api.login({
+                email: form.email,
+                password: form.password
+            });
+            
+            // Success!
+            console.log('Login successful:', response);
+            
+            // Store user data in localStorage
+            localStorage.setItem('user', JSON.stringify(response.user));
+            localStorage.setItem('isLoggedIn', 'true');
+            
+            // Call onAuthSuccess if provided
+            if (onAuthSuccess) {
+                onAuthSuccess(response.user);
+            }
+            
+            // Show success message
+            alert('Login successful! Welcome back, ' + response.user.username);
+            
+            // Navigate back to main screen or dashboard
+            onBack();
+            
+        } catch (err) {
+            console.error('Login error:', err);
+            setError(err.message || 'Invalid email or password. Please try again.');
+        } finally {
+            setLoading(false);
+        }
+    };
+>>>>>>> main
 
       // Success!
       console.log('Login successful:', response);
