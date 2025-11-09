@@ -13,7 +13,7 @@ const MainScreen = () => {
     const [showProfile, setShowProfile] = useState(false);
     const [showAnalysis, setShowAnalysis] = useState(false);
 
-    // Handler for successful login/signup
+    // Handler for successful login/sign
     const handleAuthSuccess = (name) => {
         setUserName(name);
         setShowSignUp(false);
