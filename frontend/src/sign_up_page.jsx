@@ -37,12 +37,8 @@ const SignUpPage = ({ onBack, onAuthSuccess }) => {
 
     const handleSubmit = async (e) => {
         e.preventDefault();
-<<<<<<< HEAD
-        if (loading) return;
-
-=======
-        setError("");
->>>>>>> main
+        if (loading) return;  // Prevent double submission
+        
         setLoading(true);
         setError("");
 
@@ -54,26 +50,9 @@ const SignUpPage = ({ onBack, onAuthSuccess }) => {
                 qualification: form.qualification,
                 fields_of_interest: form.fields_of_interest,
             });
-<<<<<<< HEAD
-
-            console.log("Registration successful:", response);
-
-            alert("Registration successful! Please log in with your credentials.");
-
-            // If you want to auto-login:
-            // onAuthSuccess(form.username);
-
-            onBack("login"); // Navigate to login screen
-
-=======
             
             // Success!
             console.log('Registration successful:', response);
-            
-            // Call onAuthSuccess if provided
-            if (onAuthSuccess) {
-                onAuthSuccess(form.username);
-            }
             
             // Show success message
             alert('Registration successful! Please log in with your credentials.');
@@ -81,7 +60,6 @@ const SignUpPage = ({ onBack, onAuthSuccess }) => {
             // Navigate to login screen
             onBack("login");
             
->>>>>>> main
         } catch (err) {
             console.error("Registration error:", err);
             setError(err.message || "Registration failed. Please try again.");
