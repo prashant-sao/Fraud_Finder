@@ -22,9 +22,9 @@ const AnalysisPage = ({ onBack }) => {
                 <h2 style={{ fontFamily: 'JomolhariReg' }}>Analysis Page</h2>
             </header>
 
-            <div style={{ position: "absolute", top: 32, left: 32, cursor: "pointer", fontSize: 28 }} onClick={onBack}>
+            {/* <div style={{ position: "absolute", top: 32, left: 32, cursor: "pointer", fontSize: 28 }} onClick={onBack}>
                 <span style={{ fontWeight: 600 }}>&larr;</span>
-            </div>
+            </div> */}
 
             <main style={{ flex: 1, padding: "3rem 2rem", background: "#f7f9fb" }}>
                 <div style={{
