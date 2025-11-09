@@ -11,9 +11,112 @@ from collections import Counter
 import json
 from datetime import datetime
 import time
+import sqlite3
+from contextlib import contextmanager
 
 app = Flask(__name__)
 CORS(app)
+
+# Database configuration
+DATABASE = 'job_recommender.db'
+
+@contextmanager
+def get_db():
+    """Context manager for database connections"""
+    conn = sqlite3.connect(DATABASE)
+    conn.row_factory = sqlite3.Row
+    try:
+        yield conn
+    finally:
+        conn.close()
+
+def init_db():
+    """Initialize the database with required tables"""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        
+        # Users table (integrates with existing user database)
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT UNIQUE NOT NULL,
+                email TEXT UNIQUE NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        
+        # User job history table
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS user_job_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                job_url TEXT NOT NULL,
+                job_content TEXT,
+                job_title TEXT,
+                job_company TEXT,
+                analyzed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            )
+        ''')
+        
+        # User preferences (ML profile)
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS user_preferences (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER UNIQUE NOT NULL,
+                preferred_titles TEXT,
+                preferred_skills TEXT,
+                preferred_industries TEXT,
+                preferred_levels TEXT,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            )
+        ''')
+        
+        # Job recommendations cache
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS job_recommendations (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                job_title TEXT NOT NULL,
+                job_company TEXT,
+                job_location TEXT,
+                job_description TEXT,
+                job_url TEXT NOT NULL,
+                job_source TEXT,
+                fraud_score INTEGER,
+                risk_level TEXT,
+                is_safe BOOLEAN,
+                relevance_score REAL,
+                ml_score REAL,
+                final_score REAL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            )
+        ''')
+        
+        # Analyzed jobs table
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS analyzed_jobs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                job_url TEXT NOT NULL,
+                job_title TEXT,
+                job_company TEXT,
+                job_description TEXT,
+                fraud_score INTEGER,
+                risk_level TEXT,
+                verdict TEXT,
+                red_flags TEXT,
+                is_safe BOOLEAN,
+                analyzed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+                UNIQUE(user_id, job_url)
+            )
+        ''')
+        
+        conn.commit()
+        print("✅ Database initialized successfully")
 
 # Import fraud detection logic
 class JobFraudDetector:
@@ -100,24 +203,42 @@ class MLJobRecommender:
             stop_words='english',
             ngram_range=(1, 2)
         )
-        self.user_history = []
-        self.user_profile = None
         
-    def add_to_history(self, url, content):
-        """Add analyzed job to user history"""
-        self.user_history.append({
-            'url': url,
-            'content': content,
-            'timestamp': datetime.now().isoformat(),
-            'keywords': self._extract_keywords(content)
-        })
-        
-        # Keep only last 50 entries
-        if len(self.user_history) > 50:
-            self.user_history = self.user_history[-50:]
-        
-        # Update user profile
-        self._build_user_profile()
+    def get_user_history(self, user_id):
+        """Get user's job browsing history from database"""
+        with get_db() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT job_url, job_content, job_title, job_company, analyzed_at
+                FROM user_job_history
+                WHERE user_id = ?
+                ORDER BY analyzed_at DESC
+                LIMIT 50
+            ''', (user_id,))
+            
+            rows = cursor.fetchall()
+            return [dict(row) for row in rows]
+    
+    def add_to_history(self, user_id, url, content, title="", company=""):
+        """Add analyzed job to user history in database"""
+        with get_db() as conn:
+            cursor = conn.cursor()
+            
+            # Extract keywords
+            keywords = self._extract_keywords(content)
+            
+            # Insert into history
+            cursor.execute('''
+                INSERT INTO user_job_history (user_id, job_url, job_content, job_title, job_company)
+                VALUES (?, ?, ?, ?, ?)
+            ''', (user_id, url, content, title, company))
+            
+            conn.commit()
+            
+            # Update user profile
+            self._build_user_profile(user_id)
+            
+            return keywords
     
     def _extract_keywords(self, content):
         """Extract important keywords from content"""
@@ -148,9 +269,11 @@ class MLJobRecommender:
         
         return found_keywords
     
-    def _build_user_profile(self):
+    def _build_user_profile(self, user_id):
         """Build user profile based on history using ML"""
-        if not self.user_history:
+        history = self.get_user_history(user_id)
+        
+        if not history:
             return
         
         # Aggregate all keywords from history
@@ -159,23 +282,23 @@ class MLJobRecommender:
         all_industries = []
         all_levels = []
         
-        for entry in self.user_history:
-            keywords = entry['keywords']
+        for entry in history:
+            keywords = self._extract_keywords(entry['job_content'] or '')
             all_titles.extend(keywords['titles'])
             all_skills.extend(keywords['skills'])
             all_industries.extend(keywords['industries'])
             all_levels.extend(keywords['levels'])
         
         # Count frequencies (weighted by recency)
-        weights = np.linspace(0.5, 1.0, len(self.user_history))
+        weights = np.linspace(0.5, 1.0, len(history))
         
         title_counter = Counter()
         skill_counter = Counter()
         industry_counter = Counter()
         level_counter = Counter()
         
-        for i, entry in enumerate(self.user_history):
-            keywords = entry['keywords']
+        for i, entry in enumerate(history):
+            keywords = self._extract_keywords(entry['job_content'] or '')
             for title in keywords['titles']:
                 title_counter[title] += weights[i]
             for skill in keywords['skills']:
@@ -186,21 +309,67 @@ class MLJobRecommender:
                 level_counter[level] += weights[i]
         
         # Build profile
-        self.user_profile = {
+        profile = {
             'preferred_titles': [t for t, c in title_counter.most_common(5)],
             'preferred_skills': [s for s, c in skill_counter.most_common(10)],
             'preferred_industries': [i for i, c in industry_counter.most_common(3)],
             'preferred_levels': [l for l, c in level_counter.most_common(2)],
-            'history_count': len(self.user_history)
+            'history_count': len(history)
         }
+        
+        # Save to database
+        with get_db() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                INSERT OR REPLACE INTO user_preferences 
+                (user_id, preferred_titles, preferred_skills, preferred_industries, preferred_levels, updated_at)
+                VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ''', (
+                user_id,
+                json.dumps(profile['preferred_titles']),
+                json.dumps(profile['preferred_skills']),
+                json.dumps(profile['preferred_industries']),
+                json.dumps(profile['preferred_levels'])
+            ))
+            conn.commit()
+        
+        return profile
     
-    def get_personalized_recommendations(self, limit=10):
-        """Get personalized recommendations based on user history"""
-        if not self.user_profile:
-            recommendations = self._get_default_recommendations(limit)
+    def get_user_profile(self, user_id):
+        """Get user profile from database"""
+        with get_db() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT preferred_titles, preferred_skills, preferred_industries, preferred_levels
+                FROM user_preferences
+                WHERE user_id = ?
+            ''', (user_id,))
+            
+            row = cursor.fetchone()
+            
+            if row:
+                return {
+                    'preferred_titles': json.loads(row['preferred_titles']),
+                    'preferred_skills': json.loads(row['preferred_skills']),
+                    'preferred_industries': json.loads(row['preferred_industries']),
+                    'preferred_levels': json.loads(row['preferred_levels']),
+                    'history_count': len(self.get_user_history(user_id))
+                }
+            
+            return None
+    
+    def get_personalized_recommendations(self, user_id, limit=10, risk_filter='mixed'):
+        """Get personalized recommendations for a specific user"""
+        # Get extra jobs to ensure we have enough after filtering
+        fetch_limit = limit * 3
+        
+        user_profile = self.get_user_profile(user_id)
+        
+        if not user_profile:
+            recommendations = self._get_default_recommendations(fetch_limit)
         else:
             all_jobs = []
-            profile = self.user_profile
+            profile = user_profile
             
             # Search based on user preferences
             for title in profile['preferred_titles'][:3]:
@@ -226,18 +395,16 @@ class MLJobRecommender:
                     unique_jobs.append(job)
             
             # Score using ML-based similarity
-            recommendations = self._ml_score_jobs(unique_jobs)
+            recommendations = self._ml_score_jobs(unique_jobs, user_profile)
             
-            # Ensure minimum 10 recommendations
-            if len(recommendations) < limit:
-                # Add more jobs from different sources
-                additional = self._get_additional_jobs(limit - len(recommendations))
+            # Ensure we have enough jobs
+            if len(recommendations) < fetch_limit:
+                additional = self._get_additional_jobs(fetch_limit - len(recommendations))
                 recommendations.extend(additional)
         
         # Add fraud analysis to each recommendation
-        print(f"\n🔍 Analyzing {len(recommendations)} jobs for fraud...")
-        for i, job in enumerate(recommendations[:limit]):
-            print(f"Analyzing job {i+1}/{min(len(recommendations), limit)}: {job['title']}")
+        print(f"\n🔍 Analyzing {len(recommendations)} jobs for fraud (User ID: {user_id})...")
+        for i, job in enumerate(recommendations):
             fraud_analysis = fraud_detector.quick_analyze(
                 job['title'],
                 job['company'],
@@ -250,25 +417,107 @@ class MLJobRecommender:
             job['risk_level'] = fraud_analysis['risk_level']
             job['is_safe'] = fraud_analysis['is_safe']
             
-            # Adjust final score based on safety
-            if fraud_analysis['fraud_score'] > 50:
-                job['final_score'] = job.get('final_score', 0) * 0.5  # Penalize risky jobs
+            if 'final_score' not in job:
+                job['final_score'] = job.get('relevance_score', 0)
         
-        # Sort by final score (preferring safe jobs)
-        recommendations = sorted(recommendations, key=lambda x: (x.get('is_safe', False), x.get('final_score', 0)), reverse=True)
+        # Save recommendations to database
+        self._save_recommendations(user_id, recommendations[:limit])
         
-        return recommendations[:limit]
+        # Apply risk filtering
+        filtered_recommendations = self._apply_risk_filter(recommendations, risk_filter, limit)
+        
+        return filtered_recommendations
     
-    def _ml_score_jobs(self, jobs):
+    def _apply_risk_filter(self, recommendations, risk_filter, limit):
+        """Apply risk filtering to recommendations"""
+        if risk_filter == 'safe_only':
+            filtered_jobs = [j for j in recommendations if j.get('is_safe', False)]
+            print(f"🛡️ Filtered to {len(filtered_jobs)} safe jobs only")
+            return sorted(filtered_jobs, key=lambda x: x.get('final_score', 0), reverse=True)[:limit]
+        
+        elif risk_filter == 'risky_only':
+            filtered_jobs = [j for j in recommendations if not j.get('is_safe', False)]
+            print(f"⚠️ Filtered to {len(filtered_jobs)} risky jobs only")
+            return sorted(filtered_jobs, key=lambda x: x.get('final_score', 0), reverse=True)[:limit]
+        
+        elif risk_filter == 'all':
+            print(f"📊 Showing all {len(recommendations)} jobs (no risk filtering)")
+            return sorted(recommendations, key=lambda x: x.get('final_score', 0), reverse=True)[:limit]
+        
+        else:  # 'mixed' - default: 60% safe, 40% risky
+            safe_jobs = [j for j in recommendations if j.get('is_safe', False)]
+            risky_jobs = [j for j in recommendations if not j.get('is_safe', False)]
+            
+            safe_jobs = sorted(safe_jobs, key=lambda x: x.get('final_score', 0), reverse=True)
+            risky_jobs = sorted(risky_jobs, key=lambda x: x.get('final_score', 0), reverse=True)
+            
+            safe_count = int(limit * 0.6)
+            risky_count = limit - safe_count
+            
+            print(f"🔀 Mixed mode: {safe_count} safe + {risky_count} risky jobs")
+            
+            mixed_recommendations = safe_jobs[:safe_count] + risky_jobs[:risky_count]
+            
+            if len(mixed_recommendations) < limit:
+                remaining = limit - len(mixed_recommendations)
+                if len(safe_jobs) > safe_count:
+                    mixed_recommendations.extend(safe_jobs[safe_count:safe_count + remaining])
+                elif len(risky_jobs) > risky_count:
+                    mixed_recommendations.extend(risky_jobs[risky_count:risky_count + remaining])
+            
+            return mixed_recommendations[:limit]
+    
+    def _save_recommendations(self, user_id, recommendations):
+        """Save recommendations to database"""
+        with get_db() as conn:
+            cursor = conn.cursor()
+            
+            # Clear old recommendations for this user (keep last 100)
+            cursor.execute('''
+                DELETE FROM job_recommendations 
+                WHERE user_id = ? AND id NOT IN (
+                    SELECT id FROM job_recommendations 
+                    WHERE user_id = ? 
+                    ORDER BY created_at DESC 
+                    LIMIT 100
+                )
+            ''', (user_id, user_id))
+            
+            # Insert new recommendations
+            for job in recommendations:
+                cursor.execute('''
+                    INSERT INTO job_recommendations 
+                    (user_id, job_title, job_company, job_location, job_description, job_url, 
+                     job_source, fraud_score, risk_level, is_safe, relevance_score, ml_score, final_score)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (
+                    user_id,
+                    job['title'],
+                    job['company'],
+                    job.get('location', ''),
+                    job.get('description', ''),
+                    job['url'],
+                    job.get('source', ''),
+                    job.get('fraud_score', 0),
+                    job.get('risk_level', ''),
+                    job.get('is_safe', False),
+                    job.get('relevance_score', 0),
+                    job.get('ml_score', 0),
+                    job.get('final_score', 0)
+                ))
+            
+            conn.commit()
+    
+    def _ml_score_jobs(self, jobs, user_profile):
         """Score jobs using TF-IDF and cosine similarity"""
-        if not self.user_profile or not jobs:
+        if not user_profile or not jobs:
             return sorted(jobs, key=lambda x: x.get('relevance_score', 0), reverse=True)
         
         # Create user preference text
         user_text = ' '.join(
-            self.user_profile['preferred_titles'] * 3 +  # Weight titles higher
-            self.user_profile['preferred_skills'] * 2 +
-            self.user_profile['preferred_industries']
+            user_profile['preferred_titles'] * 3 +
+            user_profile['preferred_skills'] * 2 +
+            user_profile['preferred_industries']
         )
         
         # Create job texts
@@ -282,19 +531,16 @@ class MLJobRecommender:
             all_texts = [user_text] + job_texts
             tfidf_matrix = self.vectorizer.fit_transform(all_texts)
             
-            # Calculate cosine similarity
             user_vector = tfidf_matrix[0:1]
             job_vectors = tfidf_matrix[1:]
             similarities = cosine_similarity(user_vector, job_vectors)[0]
             
-            # Add ML score to jobs
             for i, job in enumerate(jobs):
                 ml_score = similarities[i] * 100
                 base_score = job.get('relevance_score', 0)
                 job['ml_score'] = float(ml_score)
                 job['final_score'] = base_score + ml_score
             
-            # Sort by final score
             return sorted(jobs, key=lambda x: x['final_score'], reverse=True)
             
         except Exception as e:
@@ -421,42 +667,161 @@ class MLJobRecommender:
         
         return jobs
     
-    def get_user_stats(self):
+    def get_user_stats(self, user_id):
         """Get user browsing statistics"""
-        if not self.user_profile:
+        profile = self.get_user_profile(user_id)
+        history = self.get_user_history(user_id)
+        
+        if not profile:
             return {
                 'history_count': 0,
                 'message': 'No browsing history yet. Start analyzing jobs to get personalized recommendations!'
             }
         
         return {
-            'history_count': len(self.user_history),
-            'profile': self.user_profile,
-            'recent_searches': [entry['url'] for entry in self.user_history[-5:]]
+            'history_count': len(history),
+            'profile': profile,
+            'recent_searches': [entry['job_url'] for entry in history[:5]]
         }
 
 
 # Initialize recommender
 recommender = MLJobRecommender()
 
-@app.route('/api/ml-recommend', methods=['POST'])
-def ml_recommend():
-    """Get ML-based personalized recommendations with fraud scores"""
+# Initialize database on startup
+init_db()
+
+# ==================== API ENDPOINTS ====================
+
+@app.route('/api/users/register', methods=['POST'])
+def register_user():
+    """Register a new user or sync with existing user database"""
     try:
         data = request.get_json()
         
-        # Get limit (default 10, minimum 10)
+        if not data or 'username' not in data or 'email' not in data:
+            return jsonify({
+                'success': False,
+                'error': 'Username and email are required'
+            }), 400
+        
+        with get_db() as conn:
+            cursor = conn.cursor()
+            
+            try:
+                cursor.execute('''
+                    INSERT INTO users (username, email)
+                    VALUES (?, ?)
+                ''', (data['username'], data['email']))
+                
+                conn.commit()
+                user_id = cursor.lastrowid
+                
+                return jsonify({
+                    'success': True,
+                    'message': 'User registered successfully',
+                    'user_id': user_id
+                })
+                
+            except sqlite3.IntegrityError:
+                # User already exists
+                cursor.execute('''
+                    SELECT id, username, email FROM users
+                    WHERE username = ? OR email = ?
+                ''', (data['username'], data['email']))
+                
+                user = cursor.fetchone()
+                
+                return jsonify({
+                    'success': True,
+                    'message': 'User already exists',
+                    'user_id': user['id'],
+                    'username': user['username'],
+                    'email': user['email']
+                })
+                
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@app.route('/api/users/<username>', methods=['GET'])
+def get_user_by_username(username):
+    """Get user by username"""
+    try:
+        with get_db() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT id, username, email, created_at FROM users
+                WHERE username = ?
+            ''', (username,))
+            
+            user = cursor.fetchone()
+            
+            if user:
+                return jsonify({
+                    'success': True,
+                    'user': dict(user)
+                })
+            else:
+                return jsonify({
+                    'success': False,
+                    'error': 'User not found'
+                }), 404
+                
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@app.route('/api/ml-recommend', methods=['POST'])
+def ml_recommend():
+    """Get ML-based personalized recommendations for a specific user"""
+    try:
+        data = request.get_json() or {}
+        
+        # Get user_id (required)
+        user_id = data.get('user_id')
+        if not user_id:
+            return jsonify({
+                'success': False,
+                'error': 'user_id is required'
+            }), 400
+        
+        # Verify user exists
+        with get_db() as conn:
+            cursor = conn.cursor()
+            cursor.execute('SELECT id FROM users WHERE id = ?', (user_id,))
+            if not cursor.fetchone():
+                return jsonify({
+                    'success': False,
+                    'error': 'User not found'
+                }), 404
+        
+        # Get parameters
         limit = max(data.get('limit', 10), 10)
+        risk_filter = data.get('risk_filter', 'mixed')
         
         print(f"\n{'='*60}")
-        print(f"🤖 ML Recommendation Request - Getting {limit} jobs")
+        print(f"🤖 ML Recommendation Request")
+        print(f"   User ID: {user_id}")
+        print(f"   Jobs requested: {limit}")
+        print(f"   Risk filter: {risk_filter}")
         print(f"{'='*60}")
         
-        # Get recommendations based on history
-        recommendations = recommender.get_personalized_recommendations(limit=limit)
+        # Get recommendations
+        recommendations = recommender.get_personalized_recommendations(
+            user_id=user_id,
+            limit=limit,
+            risk_filter=risk_filter
+        )
         
         # Get user stats
-        stats = recommender.get_user_stats()
+        stats = recommender.get_user_stats(user_id)
         
         # Calculate safety statistics
         safe_jobs = [j for j in recommendations if j.get('is_safe', False)]
@@ -464,12 +829,15 @@ def ml_recommend():
         
         print(f"\n✅ Safe jobs: {len(safe_jobs)}")
         print(f"⚠️  Risky jobs: {len(risky_jobs)}")
+        print(f"📊 Total: {len(recommendations)}")
         print(f"{'='*60}\n")
         
         return jsonify({
             'success': True,
+            'user_id': user_id,
             'recommendations': recommendations,
             'count': len(recommendations),
+            'risk_filter': risk_filter,
             'safety_stats': {
                 'safe_count': len(safe_jobs),
                 'risky_count': len(risky_jobs),
@@ -491,38 +859,143 @@ def ml_recommend():
 
 @app.route('/api/analyze-and-learn', methods=['POST'])
 def analyze_and_learn():
-    """Analyze a job URL and add it to user history for learning"""
+    """Analyze a job URL using external fraud detection API and add it to user history for learning"""
     try:
         data = request.get_json()
         
-        if not data or 'url' not in data:
+        if not data or 'url' not in data or 'user_id' not in data:
             return jsonify({
                 'success': False,
-                'error': 'URL is required'
+                'error': 'URL and user_id are required'
             }), 400
         
         url = data['url']
+        user_id = data['user_id']
         
-        print(f"\n📊 Analyzing job: {url}")
+        # Verify user exists
+        with get_db() as conn:
+            cursor = conn.cursor()
+            cursor.execute('SELECT id FROM users WHERE id = ?', (user_id,))
+            if not cursor.fetchone():
+                return jsonify({
+                    'success': False,
+                    'error': 'User not found'
+                }), 404
         
-        # Fetch job posting
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-        }
-        response = requests.get(url, headers=headers, timeout=10)
-        soup = BeautifulSoup(response.content, 'html.parser')
-        content = soup.get_text(separator=' ', strip=True)
+        print(f"\n📊 Analyzing job: {url} for User ID: {user_id}")
+        print(f"🔗 Using external fraud detection API at http://localhost:5000")
         
-        # Add to history
-        recommender.add_to_history(url, content)
+        # Call external fraud detection API
+        try:
+            fraud_api_response = requests.post(
+                'http://localhost:5000/api/analyze',
+                json={'url': url},
+                timeout=30
+            )
+            
+            if fraud_api_response.status_code == 200:
+                fraud_api_data = fraud_api_response.json()
+                
+                if fraud_api_data.get('success'):
+                    # Extract data from fraud API response
+                    title = fraud_api_data.get('job_title', 'Unknown')
+                    fraud_score = fraud_api_data.get('fraud_score', 0)
+                    verdict = fraud_api_data.get('verdict', 'Unknown')
+                    risk_level = fraud_api_data.get('risk_level', 'Unknown')
+                    red_flags = fraud_api_data.get('red_flags', [])
+                    details = fraud_api_data.get('details', {})
+                    
+                    # Determine if safe (fraud_score < 40 for medium risk threshold)
+                    is_safe = fraud_score < 40
+                    
+                    print(f"✅ Fraud API Response: {verdict} (Score: {fraud_score})")
+                    
+                    fraud_analysis = {
+                        'fraud_score': fraud_score,
+                        'risk_level': risk_level,
+                        'verdict': verdict,
+                        'red_flags': red_flags,
+                        'is_safe': is_safe,
+                        'details': details
+                    }
+                else:
+                    raise Exception(f"Fraud API returned error: {fraud_api_data.get('error')}")
+            else:
+                raise Exception(f"Fraud API returned status code: {fraud_api_response.status_code}")
+                
+        except requests.exceptions.ConnectionError:
+            return jsonify({
+                'success': False,
+                'error': 'Could not connect to fraud detection API at http://localhost:5000. Make sure it is running.'
+            }), 503
+        except requests.exceptions.Timeout:
+            return jsonify({
+                'success': False,
+                'error': 'Fraud detection API request timed out'
+            }), 504
+        except Exception as e:
+            print(f"⚠️ Fraud API Error: {e}")
+            return jsonify({
+                'success': False,
+                'error': f'Fraud detection API error: {str(e)}'
+            }), 500
         
-        print(f"✅ Added to learning history (Total: {len(recommender.user_history)} jobs)")
+        # Fetch job posting content for ML learning
+        try:
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            }
+            response = requests.get(url, headers=headers, timeout=10)
+            soup = BeautifulSoup(response.content, 'html.parser')
+            
+            # Extract company from page
+            company_elem = soup.find('div', class_=re.compile('company|employer'))
+            company = company_elem.get_text(strip=True) if company_elem else details.get('company_website', 'N/A')
+            
+            # Extract description
+            description_elem = soup.find('div', class_=re.compile('description|content'))
+            description = description_elem.get_text(strip=True) if description_elem else ""
+            
+            content = soup.get_text(separator=' ', strip=True)
+            
+        except Exception as e:
+            print(f"⚠️ Warning: Could not fetch full content for ML learning: {e}")
+            content = f"{title} {company}"
+            description = ""
         
-        # Get updated recommendations with fraud scores
-        recommendations = recommender.get_personalized_recommendations(limit=10)
+        # Save analyzed job to database
+        with get_db() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                INSERT OR REPLACE INTO analyzed_jobs 
+                (user_id, job_url, job_title, job_company, job_description, 
+                 fraud_score, risk_level, verdict, red_flags, is_safe)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                user_id, url, title, company, description[:500],
+                fraud_analysis['fraud_score'],
+                fraud_analysis['risk_level'],
+                fraud_analysis['verdict'],
+                json.dumps(fraud_analysis['red_flags']),
+                fraud_analysis['is_safe']
+            ))
+            conn.commit()
+        
+        # Add to history for ML learning
+        recommender.add_to_history(user_id, url, content, title, company)
+        
+        history = recommender.get_user_history(user_id)
+        print(f"✅ Added to learning history (Total: {len(history)} jobs)")
+        
+        # Get updated recommendations
+        recommendations = recommender.get_personalized_recommendations(
+            user_id=user_id,
+            limit=10,
+            risk_filter='mixed'
+        )
         
         # Get user stats
-        stats = recommender.get_user_stats()
+        stats = recommender.get_user_stats(user_id)
         
         # Safety stats
         safe_jobs = [j for j in recommendations if j.get('is_safe', False)]
@@ -530,6 +1003,13 @@ def analyze_and_learn():
         return jsonify({
             'success': True,
             'message': 'Job analyzed and added to your profile',
+            'user_id': user_id,
+            'analyzed_job': {
+                'title': title,
+                'company': company,
+                'url': url,
+                'fraud_analysis': fraud_analysis
+            },
             'recommendations': recommendations,
             'count': len(recommendations),
             'safety_stats': {
@@ -537,7 +1017,8 @@ def analyze_and_learn():
                 'risky_count': len(recommendations) - len(safe_jobs)
             },
             'user_stats': stats,
-            'fraud_checked': True
+            'fraud_checked': True,
+            'fraud_api_used': True
         })
         
     except Exception as e:
@@ -548,14 +1029,27 @@ def analyze_and_learn():
         }), 500
 
 
-@app.route('/api/user-profile', methods=['GET'])
-def get_user_profile():
+@app.route('/api/user-profile/<int:user_id>', methods=['GET'])
+def get_user_profile_api(user_id):
     """Get user's learned profile"""
     try:
-        stats = recommender.get_user_stats()
+        # Verify user exists
+        with get_db() as conn:
+            cursor = conn.cursor()
+            cursor.execute('SELECT id, username, email FROM users WHERE id = ?', (user_id,))
+            user = cursor.fetchone()
+            
+            if not user:
+                return jsonify({
+                    'success': False,
+                    'error': 'User not found'
+                }), 404
+        
+        stats = recommender.get_user_stats(user_id)
         
         return jsonify({
             'success': True,
+            'user': dict(user),
             'profile': stats
         })
         
@@ -566,16 +1060,150 @@ def get_user_profile():
         }), 500
 
 
-@app.route('/api/clear-history', methods=['POST'])
-def clear_history():
-    """Clear user history and reset profile"""
+@app.route('/api/user-history/<int:user_id>', methods=['GET'])
+def get_user_history_api(user_id):
+    """Get user's browsing history"""
     try:
-        recommender.user_history = []
-        recommender.user_profile = None
+        # Verify user exists
+        with get_db() as conn:
+            cursor = conn.cursor()
+            cursor.execute('SELECT id FROM users WHERE id = ?', (user_id,))
+            if not cursor.fetchone():
+                return jsonify({
+                    'success': False,
+                    'error': 'User not found'
+                }), 404
+        
+        history = recommender.get_user_history(user_id)
         
         return jsonify({
             'success': True,
-            'message': 'History cleared successfully'
+            'user_id': user_id,
+            'history': history,
+            'count': len(history)
+        })
+        
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@app.route('/api/analyzed-jobs/<int:user_id>', methods=['GET'])
+def get_analyzed_jobs(user_id):
+    """Get all analyzed jobs for a user"""
+    try:
+        # Verify user exists
+        with get_db() as conn:
+            cursor = conn.cursor()
+            cursor.execute('SELECT id FROM users WHERE id = ?', (user_id,))
+            if not cursor.fetchone():
+                return jsonify({
+                    'success': False,
+                    'error': 'User not found'
+                }), 404
+            
+            # Get analyzed jobs
+            cursor.execute('''
+                SELECT id, job_url, job_title, job_company, job_description,
+                       fraud_score, risk_level, verdict, red_flags, is_safe, analyzed_at
+                FROM analyzed_jobs
+                WHERE user_id = ?
+                ORDER BY analyzed_at DESC
+                LIMIT 50
+            ''', (user_id,))
+            
+            jobs = cursor.fetchall()
+            
+            # Parse red_flags JSON
+            results = []
+            for job in jobs:
+                job_dict = dict(job)
+                job_dict['red_flags'] = json.loads(job_dict['red_flags'])
+                results.append(job_dict)
+            
+            return jsonify({
+                'success': True,
+                'user_id': user_id,
+                'analyzed_jobs': results,
+                'count': len(results)
+            })
+        
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@app.route('/api/recommendations/<int:user_id>', methods=['GET'])
+def get_saved_recommendations(user_id):
+    """Get saved recommendations for a user"""
+    try:
+        # Verify user exists
+        with get_db() as conn:
+            cursor = conn.cursor()
+            cursor.execute('SELECT id FROM users WHERE id = ?', (user_id,))
+            if not cursor.fetchone():
+                return jsonify({
+                    'success': False,
+                    'error': 'User not found'
+                }), 404
+            
+            # Get recommendations
+            cursor.execute('''
+                SELECT id, job_title, job_company, job_location, job_description, job_url,
+                       job_source, fraud_score, risk_level, is_safe, 
+                       relevance_score, ml_score, final_score, created_at
+                FROM job_recommendations
+                WHERE user_id = ?
+                ORDER BY created_at DESC
+                LIMIT 50
+            ''', (user_id,))
+            
+            recommendations = cursor.fetchall()
+            
+            return jsonify({
+                'success': True,
+                'user_id': user_id,
+                'recommendations': [dict(row) for row in recommendations],
+                'count': len(recommendations)
+            })
+        
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@app.route('/api/clear-history/<int:user_id>', methods=['POST'])
+def clear_history(user_id):
+    """Clear user history and reset profile"""
+    try:
+        # Verify user exists
+        with get_db() as conn:
+            cursor = conn.cursor()
+            cursor.execute('SELECT id FROM users WHERE id = ?', (user_id,))
+            if not cursor.fetchone():
+                return jsonify({
+                    'success': False,
+                    'error': 'User not found'
+                }), 404
+            
+            # Clear history
+            cursor.execute('DELETE FROM user_job_history WHERE user_id = ?', (user_id,))
+            cursor.execute('DELETE FROM user_preferences WHERE user_id = ?', (user_id,))
+            cursor.execute('DELETE FROM job_recommendations WHERE user_id = ?', (user_id,))
+            cursor.execute('DELETE FROM analyzed_jobs WHERE user_id = ?', (user_id,))
+            
+            conn.commit()
+        
+        return jsonify({
+            'success': True,
+            'message': 'History cleared successfully',
+            'user_id': user_id
         })
         
     except Exception as e:
@@ -589,20 +1217,34 @@ def clear_history():
 def home():
     """Root endpoint"""
     return jsonify({
-        'service': 'ML-Powered Job Recommendation API',
-        'version': '2.0',
+        'service': 'ML-Powered Job Recommendation API with User Database',
+        'version': '3.0',
         'features': [
-            'Machine Learning based recommendations',
-            'Learns from your browsing history',
+            'User-specific recommendations',
+            'Machine Learning based personalization',
+            'Learns from individual browsing history',
             'TF-IDF and Cosine Similarity',
-            'Minimum 10 recommendations guaranteed',
-            'Personalized job matching'
+            'Fraud detection and risk scoring',
+            'Flexible risk filtering (safe, risky, mixed, all)',
+            'SQLite database for persistent storage',
+            'Per-user job history and preferences'
         ],
         'endpoints': {
-            'POST /api/analyze-and-learn': 'Analyze job and learn from it',
-            'POST /api/ml-recommend': 'Get ML-based recommendations',
-            'GET /api/user-profile': 'View your learned profile',
-            'POST /api/clear-history': 'Clear browsing history'
+            'POST /api/users/register': 'Register or sync user',
+            'GET /api/users/<username>': 'Get user by username',
+            'POST /api/analyze-and-learn': 'Analyze job and learn from it (requires user_id)',
+            'POST /api/ml-recommend': 'Get ML-based recommendations (requires user_id)',
+            'GET /api/user-profile/<user_id>': 'View user learned profile',
+            'GET /api/user-history/<user_id>': 'View user browsing history',
+            'GET /api/analyzed-jobs/<user_id>': 'View all analyzed jobs',
+            'GET /api/recommendations/<user_id>': 'View saved recommendations',
+            'POST /api/clear-history/<user_id>': 'Clear user browsing history'
+        },
+        'risk_filter_options': {
+            'mixed': '60% safe + 40% risky jobs (default)',
+            'all': 'All jobs regardless of risk',
+            'safe_only': 'Only low-risk jobs',
+            'risky_only': 'Only high-risk jobs'
         }
     })
 
