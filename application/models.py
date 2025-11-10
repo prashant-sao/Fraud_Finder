@@ -1,5 +1,6 @@
 from application.database import db
 from flask_security import UserMixin, RoleMixin
+from datetime import datetime
 
 class User(db.Model, UserMixin):
     __tablename__ = 'User'
@@ -10,68 +11,191 @@ class User(db.Model, UserMixin):
     qualifications = db.Column(db.String(120), nullable=True)
     fields_of_interest = db.Column(db.String(250), nullable=True)
     fs_uniquifier = db.Column(db.String(255), unique=True, nullable=False)
-    active = db.Column(db.Boolean(), default=True) 
+    active = db.Column(db.Boolean(), default=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    
+    # Relationships
     roles = db.relationship('Role', secondary='user_roles', backref=db.backref('users', lazy='dynamic'))
+    job_postings = db.relationship('Job_Posting', backref='user', lazy=True)
+    community_reports = db.relationship(
+        'Community_Reports',
+        backref='reporter',
+        lazy=True,
+        foreign_keys='Community_Reports.user_id'  # Specify which foreign key to use
+    )
+    # Add a new relationship for reviews if needed
+    reviews = db.relationship(
+        'Community_Reports',
+        backref='reviewer',
+        lazy=True,
+        foreign_keys='Community_Reports.reviewed_by'
+    )
+
+    def __repr__(self):
+        return f'<User {self.username}>'
+
 
 class Role(db.Model, RoleMixin):
     __tablename__ = 'Role'
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(80), unique=True)
+    description = db.Column(db.String(255))
+
+    def __repr__(self):
+        return f'<Role {self.name}>'
+
 
 class UserRoles(db.Model):
     __tablename__ = 'user_roles'
     id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey('User.id'))
-    role_id = db.Column(db.Integer, db.ForeignKey('Role.id'))
+    user_id = db.Column(db.Integer, db.ForeignKey('User.id', ondelete='CASCADE'))
+    role_id = db.Column(db.Integer, db.ForeignKey('Role.id', ondelete='CASCADE'))
+
 
 class Job_Posting(db.Model):
     __tablename__ = 'Job_Posting'
     job_id = db.Column(db.Integer, primary_key=True)
-    url = db.Column(db.String(200), nullable=False)
-    company_name = db.Column(db.String(100), nullable=False)
-    job_title = db.Column(db.String(150), nullable=False)
+    url = db.Column(db.String(500), nullable=False)  # Increased length for long URLs
+    company_name = db.Column(db.String(100), nullable=False, index=True)
+    job_title = db.Column(db.String(150), nullable=False, index=True)
     job_description = db.Column(db.Text, nullable=False)
-    extracted_entities = db.Column(db.Text, nullable=True)
-    submitted_at = db.Column(db.DateTime, nullable=False)
-    submitted_by = db.Column(db.Integer, db.ForeignKey('User.id'), nullable=False)
+    extracted_entities = db.Column(db.Text, nullable=True)  # JSON stored as text
+    submitted_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, index=True)
+    submitted_by = db.Column(db.Integer, db.ForeignKey('User.id', ondelete='SET NULL'), nullable=True)
+    
+    # New fields for better tracking
+    location = db.Column(db.String(200), nullable=True)
+    salary_range = db.Column(db.String(100), nullable=True)
+    
+    # Relationships
+    analysis_results = db.relationship('Analysis_Results', backref='job', lazy=True, cascade='all, delete-orphan')
+    community_reports = db.relationship('Community_Reports', backref='job', lazy=True, cascade='all, delete-orphan')
+    trending = db.relationship('Trending_Fraud_Job', backref='job', lazy=True, cascade='all, delete-orphan')
+
+    def __repr__(self):
+        return f'<Job_Posting {self.job_id}: {self.job_title}>'
+
 
 class Trending_Fraud_Job(db.Model):
     __tablename__ = 'Trending_Fraud_Job'
     trend_id = db.Column(db.Integer, primary_key=True)
-    last_updated = db.Column(db.DateTime, nullable=False)  # Fixed typo
-    popularity_score = db.Column(db.Float, nullable=False)
-    job_id = db.Column(db.Integer, db.ForeignKey('Job_Posting.job_id'), nullable=False)
-    fields_of_interest = db.Column(db.String(250), nullable=True)  # Fixed FK reference
+    last_updated = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, index=True)
+    popularity_score = db.Column(db.Float, nullable=False, default=0.0)
+    view_count = db.Column(db.Integer, default=0)  # Track how many times viewed
+    report_count = db.Column(db.Integer, default=0)  # Track number of reports
+    job_id = db.Column(db.Integer, db.ForeignKey('Job_Posting.job_id', ondelete='CASCADE'), nullable=False, unique=True)
+    fields_of_interest = db.Column(db.String(250), nullable=True)
 
-class Analysis_Results(db.Model):  # Fixed class name capitalization
+    def __repr__(self):
+        return f'<Trending_Fraud_Job {self.trend_id}: Job {self.job_id}>'
+
+
+class Analysis_Results(db.Model):
     __tablename__ = 'analysis_results'
     analysis_id = db.Column(db.Integer, primary_key=True)
-    risk_score = db.Column(db.Float, nullable=False)
-    summary_labels = db.Column(db.Text, nullable=True)
-    job_id = db.Column(db.Integer, db.ForeignKey('Job_Posting.job_id'), nullable=False)
+    risk_score = db.Column(db.Float, nullable=False, index=True)
+    summary_labels = db.Column(db.Text, nullable=True)  # JSON array of red flags
+    analyzed_at = db.Column(db.DateTime, default=datetime.utcnow)
+    verdict = db.Column(db.String(50), nullable=True)  # "Likely Fraudulent", etc.
+    risk_level = db.Column(db.String(50), nullable=True)  # "High Risk", etc.
+    job_id = db.Column(db.Integer, db.ForeignKey('Job_Posting.job_id', ondelete='CASCADE'), nullable=False)
+    
+    # Relationships
+    fraud_indicators = db.relationship('Fraud_Indicators', backref='analysis', lazy=True, cascade='all, delete-orphan')
 
-class Company_Verification(db.Model):  # Fixed class name capitalization
+    def __repr__(self):
+        return f'<Analysis_Results {self.analysis_id}: Score {self.risk_score}>'
+
+
+class Company_Verification(db.Model):
     __tablename__ = 'company_verification'
     company_id = db.Column(db.Integer, primary_key=True)
-    company_name = db.Column(db.String(100), nullable=False)
-    linkedin_url = db.Column(db.String(200), nullable=True)
-    website_url = db.Column(db.String(200), nullable=True)
-    social_presence = db.Column(db.Boolean, nullable=False)
-    reputation_score = db.Column(db.Float, nullable=False)
-    is_verified = db.Column(db.Boolean, nullable=False)
+    company_name = db.Column(db.String(100), nullable=False, unique=True, index=True)
+    linkedin_url = db.Column(db.String(300), nullable=True)
+    website_url = db.Column(db.String(300), nullable=True)
+    social_presence = db.Column(db.Boolean, nullable=False, default=False)
+    reputation_score = db.Column(db.Float, nullable=False, default=50.0)
+    is_verified = db.Column(db.Boolean, nullable=False, default=False)
+    verification_date = db.Column(db.DateTime, nullable=True)
+    last_checked = db.Column(db.DateTime, default=datetime.utcnow)
+    
+    # Additional verification fields
+    website_accessible = db.Column(db.Boolean, default=False)
+    email_domain = db.Column(db.String(100), nullable=True)
+    total_jobs_posted = db.Column(db.Integer, default=0)
+    fraud_jobs_count = db.Column(db.Integer, default=0)
 
-class Community_Reports(db.Model):  # Fixed class name capitalization
+    def __repr__(self):
+        return f'<Company_Verification {self.company_name}>'
+
+
+class Community_Reports(db.Model):
     __tablename__ = 'community_reports'
     report_id = db.Column(db.Integer, primary_key=True)
-    report_date = db.Column(db.DateTime, nullable=False)
+    report_date = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, index=True)
     report_reason = db.Column(db.Text, nullable=False)
-    job_id = db.Column(db.Integer, db.ForeignKey('Job_Posting.job_id'), nullable=False)
-    user_id = db.Column(db.Integer, db.ForeignKey('User.id'), nullable=False)
+    status = db.Column(db.String(50), default='pending')  # pending, reviewed, confirmed, dismissed
+    job_id = db.Column(db.Integer, db.ForeignKey('Job_Posting.job_id', ondelete='CASCADE'), nullable=False)
+    user_id = db.Column(
+        db.Integer,
+        db.ForeignKey('User.id', ondelete='SET NULL'),
+        nullable=True
+    )
+    reviewed_by = db.Column(
+        db.Integer,
+        db.ForeignKey('User.id', ondelete='SET NULL'),
+        nullable=True
+    )
+    
+    # Additional context
+    user_experience = db.Column(db.Text, nullable=True)  # User's experience with this job
+    reviewed_at = db.Column(db.DateTime, nullable=True)
 
-class Fraud_Indicators(db.Model):  # Fixed class name capitalization
+    def __repr__(self):
+        return f'<Community_Reports {self.report_id}: Job {self.job_id}>'
+
+
+class Fraud_Indicators(db.Model):
     __tablename__ = 'fraud_indicators'
     indicator_id = db.Column(db.Integer, primary_key=True)
-    indicator_type = db.Column(db.String(100), nullable=False)
+    indicator_type = db.Column(db.String(100), nullable=False, index=True)
     description = db.Column(db.Text, nullable=True)
-    severity_level = db.Column(db.String(50), nullable=False)
-    analysis_id = db.Column(db.Integer, db.ForeignKey('analysis_results.analysis_id'), nullable=False)
+    severity_level = db.Column(db.String(50), nullable=False)  # Low, Medium, High, Critical
+    detected_at = db.Column(db.DateTime, default=datetime.utcnow)
+    analysis_id = db.Column(db.Integer, db.ForeignKey('analysis_results.analysis_id', ondelete='CASCADE'), nullable=False)
+    
+    # Additional context
+    confidence_score = db.Column(db.Float, default=1.0)  # 0.0 to 1.0
+    matched_pattern = db.Column(db.Text, nullable=True)  # What pattern/keyword triggered this
+
+    def __repr__(self):
+        return f'<Fraud_Indicators {self.indicator_id}: {self.indicator_type}>'
+
+
+# New model for tracking search queries and analytics
+class Search_Analytics(db.Model):
+    __tablename__ = 'search_analytics'
+    search_id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('User.id', ondelete='SET NULL'), nullable=True)
+    search_query = db.Column(db.String(500), nullable=False)
+    search_date = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    results_count = db.Column(db.Integer, default=0)
+    filters_applied = db.Column(db.Text, nullable=True)  # JSON
+
+    def __repr__(self):
+        return f'<Search_Analytics {self.search_id}>'
+
+
+# New model for user alerts/notifications
+class User_Alerts(db.Model):
+    __tablename__ = 'user_alerts'
+    alert_id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('User.id', ondelete='CASCADE'), nullable=False)
+    alert_type = db.Column(db.String(50), nullable=False)  # new_fraud, trending, report_update
+    message = db.Column(db.Text, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    read = db.Column(db.Boolean, default=False)
+    related_job_id = db.Column(db.Integer, db.ForeignKey('Job_Posting.job_id', ondelete='CASCADE'), nullable=True)
+
+    def __repr__(self):
+        return f'<User_Alerts {self.alert_id}: {self.alert_type}>'

@@ -17,80 +17,42 @@ const LoginScreen = ({ onBack, onAuthSuccess }) => {
     if (error) setError("");
   };
 
-<<<<<<< HEAD
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (loading) return;  // Prevent double submission
 
     setLoading(true);
     setError(""); // Clear any previous error
+
     try {
-      const response = await api.login({
-        email: form.email,
-        password: form.password
-      });
-=======
-    const handleSubmit = async (e) => {
-        e.preventDefault();
-        setError("");
-        setLoading(true);
+        const response = await api.login({
+            email: form.email,
+            password: form.password
+        });
 
-        try {
-            const response = await api.login({
-                email: form.email,
-                password: form.password
-            });
-            
-            // Success!
-            console.log('Login successful:', response);
-            
-            // Store user data in localStorage
-            localStorage.setItem('user', JSON.stringify(response.user));
-            localStorage.setItem('isLoggedIn', 'true');
-            
-            // Call onAuthSuccess if provided
-            if (onAuthSuccess) {
-                onAuthSuccess(response.user);
-            }
-            
-            // Show success message
-            alert('Login successful! Welcome back, ' + response.user.username);
-            
-            // Navigate back to main screen or dashboard
-            onBack();
-            
-        } catch (err) {
-            console.error('Login error:', err);
-            setError(err.message || 'Invalid email or password. Please try again.');
-        } finally {
-            setLoading(false);
+        // Success!
+        console.log('Login successful:', response);
+
+        // Store user data in localStorage
+        localStorage.setItem('user', JSON.stringify(response.user));
+        localStorage.setItem('isLoggedIn', 'true');
+
+        // Show success message
+        alert('Login successful! Welcome back, ' + response.user.username);
+
+        // Call onAuthSuccess callback and pass the username
+        if (onAuthSuccess) {
+            onAuthSuccess(response.user.username);
         }
-    };
->>>>>>> main
 
-      // Success!
-      console.log('Login successful:', response);
-
-      // Store user data in localStorage
-      localStorage.setItem('user', JSON.stringify(response.user));
-      localStorage.setItem('isLoggedIn', 'true');
-
-      // Show success message
-      alert('Login successful! Welcome back, ' + response.user.username);
-
-      // Call onAuthSuccess callback and pass the username
-      if (onAuthSuccess) {
-        onAuthSuccess(response.user.username);
-      }
-
-      // Navigate back to main screen
-      onBack();
+        // Navigate back to main screen
+        onBack();
 
     } catch (err) {
-      console.error('Login error:', err);
-      setError(err.message || 'Invalid email or password. Please try again.');
+        console.error('Login error:', err);
+        setError(err.message || 'Invalid email or password. Please try again.');
     } finally {
-      setLoading(false);
+        setLoading(false);
     }
   };
 

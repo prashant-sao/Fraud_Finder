@@ -7,8 +7,11 @@ from urllib.parse import urlparse
 import json
 import time
 
-app = Flask(__name__)
-CORS(app)
+import re
+import requests
+from bs4 import BeautifulSoup
+from urllib.parse import urlparse
+
 
 class JobFraudDetector:
     def __init__(self):
@@ -52,8 +55,6 @@ class JobFraudDetector:
             response.raise_for_status()
             
             soup = BeautifulSoup(response.content, 'html.parser')
-            
-            # Extract text content
             text_content = soup.get_text(separator=' ', strip=True)
             
             return {
@@ -74,12 +75,18 @@ class JobFraudDetector:
         fraud_score = 0
         red_flags = []
         details = {}
+        fraud_indicators_list = []
 
         # Check 1: Vague Job Description (15 points)
         if self._check_vague_description(content):
             fraud_score += 15
             red_flags.append('vague_description')
             details['vague_description'] = True
+            fraud_indicators_list.append({
+                'type': 'Vague Description',
+                'description': 'Job posting lacks clear responsibilities and requirements',
+                'severity': 'Medium'
+            })
 
         # Check 2: Unrealistic Salary/Benefits (20 points)
         salary_check = self._check_unrealistic_salary(content_lower)
@@ -87,6 +94,11 @@ class JobFraudDetector:
             fraud_score += 20
             red_flags.append('unrealistic_salary')
             details['unrealistic_salary'] = salary_check['reasons']
+            fraud_indicators_list.append({
+                'type': 'Unrealistic Compensation',
+                'description': f"Suspicious salary promises: {', '.join(salary_check['reasons'])}",
+                'severity': 'High'
+            })
 
         # Check 3: No Company Information (15 points)
         company_check = self._check_company_info(content_lower, url)
@@ -94,12 +106,22 @@ class JobFraudDetector:
             fraud_score += 15
             red_flags.append('no_company_info')
             details['no_company_info'] = True
+            fraud_indicators_list.append({
+                'type': 'Missing Company Information',
+                'description': f"Missing {company_check['missing_count']} key company details",
+                'severity': 'Medium'
+            })
 
         # Check 4: Request for Personal Details (15 points)
         if self._check_personal_details_request(content_lower):
             fraud_score += 15
             red_flags.append('requests_personal_details')
             details['requests_personal_details'] = True
+            fraud_indicators_list.append({
+                'type': 'Suspicious Personal Data Request',
+                'description': 'Requests sensitive personal or financial information',
+                'severity': 'Critical'
+            })
 
         # Check 5: Poor Grammar/Spelling (10 points)
         grammar_score = self._check_grammar(content)
@@ -107,6 +129,11 @@ class JobFraudDetector:
             fraud_score += 10
             red_flags.append('poor_grammar')
             details['poor_grammar'] = grammar_score
+            fraud_indicators_list.append({
+                'type': 'Poor Grammar',
+                'description': f"Multiple grammar/formatting issues detected ({grammar_score})",
+                'severity': 'Low'
+            })
 
         # Check 6: Suspicious Contact Methods (10 points)
         contact_check = self._check_contact_methods(content_lower)
@@ -114,6 +141,11 @@ class JobFraudDetector:
             fraud_score += 10
             red_flags.append('suspicious_contact')
             details['suspicious_contact'] = contact_check['reasons']
+            fraud_indicators_list.append({
+                'type': 'Suspicious Contact Methods',
+                'description': f"Non-professional contact methods: {', '.join(contact_check['reasons'])}",
+                'severity': 'Medium'
+            })
         
         # Check 7: No LinkedIn Presence (10 points)
         linkedin_check = self._check_linkedin_presence(content, content_lower)
@@ -121,6 +153,11 @@ class JobFraudDetector:
             fraud_score += 10
             red_flags.append('no_linkedin')
             details['no_linkedin'] = True
+            fraud_indicators_list.append({
+                'type': 'No LinkedIn Presence',
+                'description': 'Company has no LinkedIn profile mentioned',
+                'severity': 'Low'
+            })
         else:
             details['linkedin_found'] = linkedin_check['linkedin_url']
         
@@ -130,14 +167,17 @@ class JobFraudDetector:
             fraud_score += 15
             red_flags.append('no_company_website')
             details['no_company_website'] = True
+            fraud_indicators_list.append({
+                'type': 'No Company Website',
+                'description': 'No verifiable company website found',
+                'severity': 'High'
+            })
         else:
             details['company_website'] = website_check['website_url']
             details['website_status'] = website_check['status']
 
-        # Cap at 100
         fraud_score = min(fraud_score, 100)
 
-        # Determine verdict
         if fraud_score >= 70:
             verdict = "Likely Fraudulent"
             risk_level = "High Risk"
@@ -153,16 +193,18 @@ class JobFraudDetector:
             'verdict': verdict,
             'risk_level': risk_level,
             'red_flags': red_flags,
-            'details': details
+            'details': details,
+            'fraud_indicators': fraud_indicators_list,
+            'linkedin_url': linkedin_check.get('linkedin_url'),
+            'website_url': website_check.get('website_url'),
+            'website_accessible': website_check.get('accessible', False)
         }
 
     def _check_vague_description(self, content):
         """Check if job description is too vague"""
-        # Very short description
         if len(content.split()) < 50:
             return True
         
-        # Missing key elements
         has_responsibilities = any(word in content.lower() for word in 
                                   ['responsibilities', 'duties', 'role', 'tasks'])
         has_requirements = any(word in content.lower() for word in 
@@ -178,7 +220,6 @@ class JobFraudDetector:
             if flag in content:
                 reasons.append(flag)
         
-        # Check for very high amounts without context
         salary_patterns = [
             r'\$\d{4,},?\d*\+?\s*(per|a|/)?\s*(day|week)',
             r'earn\s+\$\d{4,}'
@@ -195,14 +236,12 @@ class JobFraudDetector:
     
     def _check_linkedin_presence(self, content, content_lower):
         """Check for LinkedIn company or recruiter profile"""
-        # Look for LinkedIn URLs
         linkedin_urls = []
         
         for pattern in self.linkedin_patterns:
             matches = re.findall(pattern, content_lower)
             linkedin_urls.extend(matches)
         
-        # Also check for mentions of LinkedIn
         has_linkedin_mention = 'linkedin' in content_lower
         
         return {
@@ -213,12 +252,10 @@ class JobFraudDetector:
     
     def _check_company_website(self, content, content_lower, job_url):
         """Check for company website and verify if it's accessible"""
-        # Extract potential website URLs
         website_urls = []
         
         for pattern in self.website_patterns:
             matches = re.findall(pattern, content_lower)
-            # Filter out the job posting URL itself and common third-party sites
             filtered = [url for url in matches if url not in job_url and 
                        not any(excluded in url for excluded in 
                               ['indeed', 'linkedin', 'glassdoor', 'monster', 'naukri'])]
@@ -231,7 +268,6 @@ class JobFraudDetector:
                 'status': 'not_found'
             }
         
-        # Try to verify the first website
         website_url = website_urls[0]
         if not website_url.startswith('http'):
             website_url = 'https://' + website_url
@@ -254,43 +290,21 @@ class JobFraudDetector:
             response = requests.get(url, headers=headers, timeout=5, allow_redirects=True)
             
             if response.status_code == 200:
-                return {
-                    'accessible': True,
-                    'status': 'active'
-                }
+                return {'accessible': True, 'status': 'active'}
             else:
-                return {
-                    'accessible': False,
-                    'status': f'error_{response.status_code}'
-                }
+                return {'accessible': False, 'status': f'error_{response.status_code}'}
         except requests.exceptions.Timeout:
-            return {
-                'accessible': False,
-                'status': 'timeout'
-            }
+            return {'accessible': False, 'status': 'timeout'}
         except requests.exceptions.ConnectionError:
-            return {
-                'accessible': False,
-                'status': 'connection_error'
-            }
-        except Exception as e:
-            return {
-                'accessible': False,
-                'status': 'unknown_error'
-            }
+            return {'accessible': False, 'status': 'connection_error'}
+        except Exception:
+            return {'accessible': False, 'status': 'unknown_error'}
 
     def _check_company_info(self, content, url):
         """Check if company information is missing or suspicious"""
-        domain = urlparse(url).netloc
-        
-        # Check for company name
         has_company = any(word in content for word in 
                          ['company', 'corporation', 'inc', 'llc', 'ltd'])
-        
-        # Check for company website
         has_website = 'website' in content or 'www.' in content
-        
-        # Check for physical address
         has_address = any(word in content for word in 
                          ['address', 'location', 'office', 'headquarters'])
         
@@ -344,6 +358,7 @@ class JobFraudDetector:
         return {
             'is_suspicious': len(reasons) > 0,
             'reasons': reasons
+<<<<<<< HEAD
         }
 
 
@@ -938,3 +953,6 @@ def favicon():
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5000)
+=======
+        }
+>>>>>>> 57d40d584c1bf71876980331e5a862a94f5ee6a2
