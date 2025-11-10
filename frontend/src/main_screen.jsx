@@ -6,14 +6,14 @@ import SignUpPage from "./sign_up_page";
 import ProfilePage from "./profile_page";
 import AnalysisPage from "./analysis_page";
 
-    const MainScreen = () => {
+const MainScreen = () => {
     const [showSignUp, setShowSignUp] = useState(false);
     const [showLogin, setShowLogin] = useState(false);
     const [userName, setUserName] = useState("");
     const [showProfile, setShowProfile] = useState(false);
     const [showAnalysis, setShowAnalysis] = useState(false);
 
-    // Handler for successful login/signup
+    // Handler for successful login/sign
     const handleAuthSuccess = (name) => {
         setUserName(name);
         setShowSignUp(false);
@@ -62,18 +62,12 @@ import AnalysisPage from "./analysis_page";
                             >
                                 Log In
                             </button>
-                            
+
                             <button
                                 style={{ fontFamily: 'JomolhariReg', marginRight: "1rem", padding: "0.5rem 1.2rem", borderRadius: "25px", border: "none", background: "#5c5c5cff", color: "#fff", fontWeight: 600, cursor: "pointer" }}
                                 onClick={() => setShowProfile(true)}
                             >
                                 Profile
-                            </button>
-                            <button
-                                style={{ fontFamily: 'JomolhariReg', marginRight: "1rem", padding: "0.5rem 1.2rem", borderRadius: "25px", border: "none", background: "#5c5c5cff", color: "#fff", fontWeight: 600, cursor: "pointer" }}
-                                onClick={() => setShowAnalysis(true)}
-                            >
-                                Analysis Page
                             </button>
                         </>
                     )}
@@ -172,8 +166,8 @@ import AnalysisPage from "./analysis_page";
                                 background: "#32BCAE",
                                 color: "#fff",
                                 fontWeight: 600,
-                                cursor: "pointer"
-                            }}>Analyze Job Posting</button>
+                                cursor: "pointer",
+                            }} onClick={() => setShowAnalysis(true)}>Analyze Job Posting</button>
 
                         </div>
                     </div>
