@@ -1,12 +1,3 @@
-'''from flask import Flask, request, jsonify
-from flask_cors import CORS
-import re
-import requests
-from bs4 import BeautifulSoup
-from urllib.parse import urlparse
-import json
-import time
-
 import re
 import requests
 from bs4 import BeautifulSoup
@@ -14,7 +5,7 @@ from urllib.parse import urlparse
 
 
 class JobFraudDetector:
-    def __init__(self):
+    def _init_(self):
         # Red flag keywords
         self.salary_red_flags = [
             'guaranteed income', 'unlimited earning', 'earn thousands weekly',
@@ -73,111 +64,75 @@ class JobFraudDetector:
         """Analyze job posting for fraud indicators"""
         content_lower = content.lower()
         fraud_score = 0
-        red_flags = []
+        red_flags = {}
         details = {}
-        fraud_indicators_list = []
 
         # Check 1: Vague Job Description (15 points)
-        if self._check_vague_description(content):
+        vague_desc = self._check_vague_description(content)
+        red_flags['vague_description'] = vague_desc
+        if vague_desc:
             fraud_score += 15
-            red_flags.append('vague_description')
             details['vague_description'] = True
-            fraud_indicators_list.append({
-                'type': 'Vague Description',
-                'description': 'Job posting lacks clear responsibilities and requirements',
-                'severity': 'Medium'
-            })
 
         # Check 2: Unrealistic Salary/Benefits (20 points)
         salary_check = self._check_unrealistic_salary(content_lower)
+        red_flags['unrealistic_salary'] = salary_check['is_suspicious']
         if salary_check['is_suspicious']:
             fraud_score += 20
-            red_flags.append('unrealistic_salary')
             details['unrealistic_salary'] = salary_check['reasons']
-            fraud_indicators_list.append({
-                'type': 'Unrealistic Compensation',
-                'description': f"Suspicious salary promises: {', '.join(salary_check['reasons'])}",
-                'severity': 'High'
-            })
 
         # Check 3: No Company Information (15 points)
         company_check = self._check_company_info(content_lower, url)
+        red_flags['no_company_info'] = company_check['missing']
         if company_check['missing']:
             fraud_score += 15
-            red_flags.append('no_company_info')
             details['no_company_info'] = True
-            fraud_indicators_list.append({
-                'type': 'Missing Company Information',
-                'description': f"Missing {company_check['missing_count']} key company details",
-                'severity': 'Medium'
-            })
 
         # Check 4: Request for Personal Details (15 points)
-        if self._check_personal_details_request(content_lower):
+        personal_details = self._check_personal_details_request(content_lower)
+        red_flags['requests_personal_details'] = personal_details
+        if personal_details:
             fraud_score += 15
-            red_flags.append('requests_personal_details')
             details['requests_personal_details'] = True
-            fraud_indicators_list.append({
-                'type': 'Suspicious Personal Data Request',
-                'description': 'Requests sensitive personal or financial information',
-                'severity': 'Critical'
-            })
 
         # Check 5: Poor Grammar/Spelling (10 points)
         grammar_score = self._check_grammar(content)
-        if grammar_score > 5:
+        poor_grammar = grammar_score > 5
+        red_flags['poor_grammar'] = poor_grammar
+        if poor_grammar:
             fraud_score += 10
-            red_flags.append('poor_grammar')
             details['poor_grammar'] = grammar_score
-            fraud_indicators_list.append({
-                'type': 'Poor Grammar',
-                'description': f"Multiple grammar/formatting issues detected ({grammar_score})",
-                'severity': 'Low'
-            })
 
         # Check 6: Suspicious Contact Methods (10 points)
         contact_check = self._check_contact_methods(content_lower)
+        red_flags['suspicious_contact'] = contact_check['is_suspicious']
         if contact_check['is_suspicious']:
             fraud_score += 10
-            red_flags.append('suspicious_contact')
             details['suspicious_contact'] = contact_check['reasons']
-            fraud_indicators_list.append({
-                'type': 'Suspicious Contact Methods',
-                'description': f"Non-professional contact methods: {', '.join(contact_check['reasons'])}",
-                'severity': 'Medium'
-            })
         
         # Check 7: No LinkedIn Presence (10 points)
         linkedin_check = self._check_linkedin_presence(content, content_lower)
+        red_flags['no_linkedin'] = not linkedin_check['has_linkedin']
         if not linkedin_check['has_linkedin']:
             fraud_score += 10
-            red_flags.append('no_linkedin')
             details['no_linkedin'] = True
-            fraud_indicators_list.append({
-                'type': 'No LinkedIn Presence',
-                'description': 'Company has no LinkedIn profile mentioned',
-                'severity': 'Low'
-            })
         else:
             details['linkedin_found'] = linkedin_check['linkedin_url']
         
         # Check 8: No Company Website (15 points)
         website_check = self._check_company_website(content, content_lower, url)
+        red_flags['no_company_website'] = not website_check['has_website']
         if not website_check['has_website']:
             fraud_score += 15
-            red_flags.append('no_company_website')
             details['no_company_website'] = True
-            fraud_indicators_list.append({
-                'type': 'No Company Website',
-                'description': 'No verifiable company website found',
-                'severity': 'High'
-            })
         else:
             details['company_website'] = website_check['website_url']
             details['website_status'] = website_check['status']
 
+        # Cap at 100
         fraud_score = min(fraud_score, 100)
 
+        # Determine verdict
         if fraud_score >= 70:
             verdict = "Likely Fraudulent"
             risk_level = "High Risk"
@@ -193,11 +148,7 @@ class JobFraudDetector:
             'verdict': verdict,
             'risk_level': risk_level,
             'red_flags': red_flags,
-            'details': details,
-            'fraud_indicators': fraud_indicators_list,
-            'linkedin_url': linkedin_check.get('linkedin_url'),
-            'website_url': website_check.get('website_url'),
-            'website_accessible': website_check.get('accessible', False)
+            'details': details
         }
 
     def _check_vague_description(self, content):
@@ -359,5 +310,6 @@ class JobFraudDetector:
             'is_suspicious': len(reasons) > 0,
             'reasons': reasons
         }
+
 
 
