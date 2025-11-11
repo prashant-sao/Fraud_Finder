@@ -153,6 +153,33 @@ def login():
         logger.error(f"Login error: {str(e)}", exc_info=True)
         return jsonify({'message': 'Login failed. Please try again.'}), 500
 
+@api_bp.route('/api/logout', methods=['POST'])
+@auth_required('token')
+def logout():
+    """User logout endpoint"""
+    try:
+        # Get current user info before logout
+        username = current_user.username
+        user_id = current_user.id
+        
+        # Logout the user (Flask-Security handles session/token invalidation)
+        from flask_security import logout_user
+        logout_user()
+        
+        logger.info(f"User logged out: {username} (ID: {user_id})")
+        
+        return jsonify({
+            'success': True,
+            'message': 'Logged out successfully'
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Logout error: {str(e)}", exc_info=True)
+        return jsonify({
+            'success': False,
+            'message': 'Logout failed. Please try again.'
+        }), 500
+
 @api_bp.route('/api/edit_profile', methods=['PUT'])
 @auth_required('token')
 def edit_profile():
