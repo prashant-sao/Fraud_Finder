@@ -270,7 +270,7 @@ const AnalysisPage = () => {
                                                                 borderRadius: 12,
                                                                 width: 100,
                                                                 height: 100,
-                                                                minWidth: 250,
+                                                                minWidth: 200,
                                                                 minHeight: 100,
                                                                 maxWidth: 100,
                                                                 maxHeight: 100,
