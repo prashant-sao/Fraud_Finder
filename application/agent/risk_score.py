@@ -5,7 +5,7 @@ from urllib.parse import urlparse
 
 
 class JobFraudDetector:
-    def _init_(self):
+    def __init__(self):
         # Red flag keywords
         self.salary_red_flags = [
             'guaranteed income', 'unlimited earning', 'earn thousands weekly',

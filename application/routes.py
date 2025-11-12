@@ -651,113 +651,6 @@ def generate_recommendations(analysis_result, risk_score):
         
     return recommendations
 
-@api_bp.route('/api/report_scam', methods=['POST'])
-@validate_json_request()
-def report_scam():
-    """API endpoint for reporting scam job postings"""
-    try:
-        data = request.get_json()
-        
-        email = data.get('email', '').strip()
-        phone = data.get('phone', '').strip()
-        additional_info = data.get('additional_info', '').strip()
-        
-        if not email and not phone:
-            return jsonify({'error': 'Either email or phone must be provided'}), 400
-        
-        # Validate email format if provided
-        if email:
-            email_pattern = re.compile(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$')
-            if not email_pattern.match(email):
-                return jsonify({'error': 'Invalid email format'}), 400
-        
-        # Validate phone format if provided
-        if phone:
-            phone_clean = re.sub(r'[^\d+]', '', phone)
-            if len(phone_clean) < 10:
-                return jsonify({'error': 'Invalid phone number'}), 400
-        
-        add_scam_to_database(email, phone)
-        logger.info(f"Scam reported - Email: {email}, Phone: {phone}")
-        
-        return jsonify({
-            'success': True,
-            'message': 'Thank you for reporting. The information has been added to our scam database.'
-        }), 200
-        
-    except Exception as e:
-        logger.error(f"Report scam error: {str(e)}", exc_info=True)
-        return jsonify({'error': 'Failed to report scam'}), 500
-
-@api_bp.route('/api/report', methods=['POST'])
-@auth_required('token')
-@validate_json_request(['job_id', 'reason'])
-def report_job():
-    """Community report endpoint for authenticated users"""
-    try:
-        data = request.get_json()
-        
-        job_id = data['job_id']
-        reason = data['reason'].strip()
-        
-        if not reason:
-            return jsonify({'success': False, 'error': 'Report reason cannot be empty'}), 400
-        
-        # Check if job exists
-        job = Job_Posting.query.get(job_id)
-        if not job:
-            return jsonify({'success': False, 'error': 'Job not found'}), 404
-        
-        # Check for duplicate reports from same user
-        existing_report = Community_Reports.query.filter_by(
-            job_id=job_id,
-            user_id=current_user.id
-        ).first()
-        
-        if existing_report:
-            return jsonify({
-                'success': False,
-                'error': 'You have already reported this job'
-            }), 400
-        
-        # Create report
-        report = Community_Reports(
-            job_id=job_id,
-            user_id=current_user.id,
-            report_date=datetime.utcnow(),
-            report_reason=reason[:500],  # Limit reason length
-            user_experience=data.get('experience', '')[:1000]  # Limit experience length
-        )
-        db.session.add(report)
-        
-        # Update trending fraud job statistics
-        trending = Trending_Fraud_Job.query.filter_by(job_id=job_id).first()
-        if trending:
-            trending.report_count += 1
-            trending.last_updated = datetime.utcnow()
-        else:
-            trending = Trending_Fraud_Job(
-                job_id=job_id,
-                report_count=1,
-                view_count=0,
-                popularity_score=1.0
-            )
-            db.session.add(trending)
-        
-        db.session.commit()
-        
-        logger.info(f"Job {job_id} reported by user {current_user.id}")
-        return jsonify({
-            'success': True,
-            'report_id': report.report_id,
-            'message': 'Report submitted successfully'
-        }), 200
-        
-    except Exception as e:
-        logger.error(f"Report error: {str(e)}", exc_info=True)
-        db.session.rollback()
-        return jsonify({'success': False, 'error': 'Failed to submit report'}), 500
-
 @api_bp.route('/api/recent_alerts', methods=['GET'])
 def get_recent_alerts():
     """API endpoint for getting recent fraud alerts from database"""
@@ -864,448 +757,247 @@ def get_stats():
             'users_protected': 0
         }), 500
 
-@api_bp.route('/api/job/<int:job_id>', methods=['GET'])
-def get_job_details(job_id):
-    """Get detailed information about a specific job posting"""
-    try:
-        # Get job with analysis
-        job = db.session.query(
-            Job_Posting, Analysis_Results
-        ).join(
-            Analysis_Results,
-            Job_Posting.job_id == Analysis_Results.job_id
-        ).filter(
-            Job_Posting.job_id == job_id
-        ).first()
-        
-        if not job:
-            return jsonify({'error': 'Job not found'}), 404
-        
-        job_posting, analysis = job
-        
-        # Get fraud indicators
-        indicators = Fraud_Indicators.query.filter_by(
-            analysis_id=analysis.analysis_id
-        ).all()
-        
-        # Get company verification
-        company = Company_Verification.query.filter_by(
-            company_name=job_posting.company_name
-        ).first()
-        
-        # Get report count
-        report_count = Community_Reports.query.filter_by(
-            job_id=job_id
-        ).count()
-        
-        response_data = {
-            'success': True,
-            'job': {
-                'id': job_posting.job_id,
-                'title': job_posting.job_title,
-                'company': job_posting.company_name,
-                'description': job_posting.job_description,
-                'url': job_posting.url if job_posting.url != 'https://example.com/manual-entry' else None,
-                'submitted_at': job_posting.submitted_at.isoformat()
-            },
-            'analysis': {
-                'risk_score': analysis.risk_score,
-                'verdict': analysis.verdict,
-                'risk_level': analysis.risk_level,
-                'risk_color': get_risk_color(analysis.risk_score)
-            },
-            'indicators': [
-                {
-                    'type': ind.indicator_type,
-                    'description': ind.description,
-                    'severity': ind.severity_level
-                } for ind in indicators
-            ],
-            'company': {
-                'name': company.company_name if company else job_posting.company_name,
-                'reputation_score': company.reputation_score if company else 0,
-                'is_verified': company.is_verified if company else False,
-                'total_jobs': company.total_jobs_posted if company else 1,
-                'fraud_jobs': company.fraud_jobs_count if company else (1 if analysis.risk_score >= 70 else 0)
-            } if company else None,
-            'community': {
-                'report_count': report_count
-            }
-        }
-        
-        return jsonify(response_data), 200
-        
-    except Exception as e:
-        logger.error(f"Get job details error: {str(e)}", exc_info=True)
-        return jsonify({'error': 'Failed to fetch job details'}), 500
+# from application.agent.job_recommendation import get_recommendation_engine
 
-from application.agent.job_recommendation import get_recommendation_engine
+# # Add these routes to your api_bp Blueprint
 
-# Add these routes to your api_bp Blueprint
-
-@api_bp.route('/api/recommendations/get', methods=['POST'])
-@auth_required('token')
-def get_job_recommendations():
-    """
-    Get personalized job recommendations for authenticated user
+# @api_bp.route('/api/recommendations/get', methods=['POST'])
+# @auth_required('token')
+# def get_job_recommendations():
+#     """
+#     Get personalized job recommendations for authenticated user
     
-    Request body:
-        {
-            "limit": 10,  # optional, default 10
-            "include_external": true,  # optional, default true
-            "risk_filter": "safe_only"  # optional: "safe_only", "all", "mixed"
-        }
-    """
-    try:
-        data = request.get_json() or {}
+#     Request body:
+#         {
+#             "limit": 10,  # optional, default 10
+#             "include_external": true,  # optional, default true
+#             "risk_filter": "safe_only"  # optional: "safe_only", "all", "mixed"
+#         }
+#     """
+#     try:
+#         data = request.get_json() or {}
         
-        user_id = current_user.id
-        limit = max(1, min(data.get('limit', 10), 50))  # Between 1 and 50
-        include_external = data.get('include_external', True)
-        risk_filter = data.get('risk_filter', 'safe_only')
+#         user_id = current_user.id
+#         limit = max(1, min(data.get('limit', 10), 50))  # Between 1 and 50
+#         include_external = data.get('include_external', True)
+#         risk_filter = data.get('risk_filter', 'safe_only')
         
-        # Validate risk filter
-        if risk_filter not in ['safe_only', 'all', 'mixed']:
-            return jsonify({
-                'error': 'risk_filter must be one of: safe_only, all, mixed'
-            }), 400
+#         # Validate risk filter
+#         if risk_filter not in ['safe_only', 'all', 'mixed']:
+#             return jsonify({
+#                 'error': 'risk_filter must be one of: safe_only, all, mixed'
+#             }), 400
         
-        logger.info(f"Getting recommendations for user {user_id}")
+#         logger.info(f"Getting recommendations for user {user_id}")
         
-        # Get recommendation engine
-        engine = get_recommendation_engine()
+#         # Get recommendation engine
+#         engine = get_recommendation_engine()
         
-        # Get recommendations
-        recommendations = engine.get_recommendations(
-            user_id=user_id,
-            limit=limit,
-            include_external=include_external,
-            risk_filter=risk_filter
-        )
+#         # Get recommendations
+#         recommendations = engine.get_recommendations(
+#             user_id=user_id,
+#             limit=limit,
+#             include_external=include_external,
+#             risk_filter=risk_filter
+#         )
         
-        # Get user stats
-        stats = engine.get_user_stats(user_id)
+#         # Get user stats
+#         stats = engine.get_user_stats(user_id)
         
-        # Calculate statistics
-        safe_count = sum(1 for r in recommendations if r.get('risk_score', 0) <= 30)
-        risky_count = len(recommendations) - safe_count
+#         # Calculate statistics
+#         safe_count = sum(1 for r in recommendations if r.get('risk_score', 0) <= 30)
+#         risky_count = len(recommendations) - safe_count
         
-        response = {
-            'success': True,
-            'user_id': user_id,
-            'recommendations': recommendations,
-            'count': len(recommendations),
-            'parameters': {
-                'limit': limit,
-                'include_external': include_external,
-                'risk_filter': risk_filter
-            },
-            'statistics': {
-                'safe_jobs': safe_count,
-                'risky_jobs': risky_count,
-                'total': len(recommendations)
-            },
-            'user_profile': stats
-        }
+#         response = {
+#             'success': True,
+#             'user_id': user_id,
+#             'recommendations': recommendations,
+#             'count': len(recommendations),
+#             'parameters': {
+#                 'limit': limit,
+#                 'include_external': include_external,
+#                 'risk_filter': risk_filter
+#             },
+#             'statistics': {
+#                 'safe_jobs': safe_count,
+#                 'risky_jobs': risky_count,
+#                 'total': len(recommendations)
+#             },
+#             'user_profile': stats
+#         }
         
-        return jsonify(response), 200
+#         return jsonify(response), 200
         
-    except Exception as e:
-        logger.error(f"Recommendation error: {e}", exc_info=True)
-        return jsonify({'error': 'Failed to get recommendations'}), 500
+#     except Exception as e:
+#         logger.error(f"Recommendation error: {e}", exc_info=True)
+#         return jsonify({'error': 'Failed to get recommendations'}), 500
 
 
-@api_bp.route('/api/recommendations/profile', methods=['GET'])
-@auth_required('token')
-def get_recommendation_profile():
-    """Get user's recommendation profile and statistics"""
-    try:
-        user_id = current_user.id
+# @api_bp.route('/api/recommendations/profile', methods=['GET'])
+# @auth_required('token')
+# def get_recommendation_profile():
+#     """Get user's recommendation profile and statistics"""
+#     try:
+#         user_id = current_user.id
         
-        engine = get_recommendation_engine()
-        stats = engine.get_user_stats(user_id)
+#         engine = get_recommendation_engine()
+#         stats = engine.get_user_stats(user_id)
         
-        # Get user preferences
-        user_prefs = engine.get_user_preferences(user_id)
+#         # Get user preferences
+#         user_prefs = engine.get_user_preferences(user_id)
         
-        response = {
-            'success': True,
-            'user_id': user_id,
-            'profile': stats,
-            'preferences': {
-                'qualifications': user_prefs['qualifications'] if user_prefs else [],
-                'interests': user_prefs['interests'] if user_prefs else []
-            },
-            'recommendations_enabled': stats['jobs_analyzed'] > 0 or (user_prefs and (user_prefs['qualifications'] or user_prefs['interests']))
-        }
+#         response = {
+#             'success': True,
+#             'user_id': user_id,
+#             'profile': stats,
+#             'preferences': {
+#                 'qualifications': user_prefs['qualifications'] if user_prefs else [],
+#                 'interests': user_prefs['interests'] if user_prefs else []
+#             },
+#             'recommendations_enabled': stats['jobs_analyzed'] > 0 or (user_prefs and (user_prefs['qualifications'] or user_prefs['interests']))
+#         }
         
-        return jsonify(response), 200
+#         return jsonify(response), 200
         
-    except Exception as e:
-        logger.error(f"Profile error: {e}", exc_info=True)
-        return jsonify({'error': 'Failed to get profile'}), 500
+#     except Exception as e:
+#         logger.error(f"Profile error: {e}", exc_info=True)
+#         return jsonify({'error': 'Failed to get profile'}), 500
 
 
-@api_bp.route('/api/recommendations/history', methods=['GET'])
-@auth_required('token')
-def get_recommendation_history():
-    """Get user's job browsing history for recommendations"""
-    try:
-        user_id = current_user.id
-        limit = request.args.get('limit', default=50, type=int)
-        limit = min(max(1, limit), 100)  # Between 1 and 100
+# @api_bp.route('/api/recommendations/history', methods=['GET'])
+# @auth_required('token')
+# def get_recommendation_history():
+#     """Get user's job browsing history for recommendations"""
+#     try:
+#         user_id = current_user.id
+#         limit = request.args.get('limit', default=50, type=int)
+#         limit = min(max(1, limit), 100)  # Between 1 and 100
         
-        engine = get_recommendation_engine()
-        history = engine.get_user_browsing_history(user_id, limit=limit)
+#         engine = get_recommendation_engine()
+#         history = engine.get_user_browsing_history(user_id, limit=limit)
         
-        response = {
-            'success': True,
-            'user_id': user_id,
-            'history': history,
-            'count': len(history)
-        }
+#         response = {
+#             'success': True,
+#             'user_id': user_id,
+#             'history': history,
+#             'count': len(history)
+#         }
         
-        return jsonify(response), 200
+#         return jsonify(response), 200
         
-    except Exception as e:
-        logger.error(f"History error: {e}", exc_info=True)
-        return jsonify({'error': 'Failed to get history'}), 500
+#     except Exception as e:
+#         logger.error(f"History error: {e}", exc_info=True)
+#         return jsonify({'error': 'Failed to get history'}), 500
 
 
-@api_bp.route('/api/recommendations/suggest', methods=['POST'])
-def get_public_recommendations():
-    """
-    Get job recommendations for non-authenticated users based on query
+# @api_bp.route('/api/recommendations/suggest', methods=['POST'])
+# def get_public_recommendations():
+#     """
+#     Get job recommendations for non-authenticated users based on query
     
-    Request body:
-        {
-            "query": "software engineer",  # required
-            "location": "Remote",  # optional, default "Remote"
-            "limit": 10  # optional, default 10
-        }
-    """
-    try:
-        data = request.get_json()
-        if not data or 'query' not in data:
-            return jsonify({'error': 'query is required'}), 400
+#     Request body:
+#         {
+#             "query": "software engineer",  # required
+#             "location": "Remote",  # optional, default "Remote"
+#             "limit": 10  # optional, default 10
+#         }
+#     """
+#     try:
+#         data = request.get_json()
+#         if not data or 'query' not in data:
+#             return jsonify({'error': 'query is required'}), 400
         
-        query = data['query'].strip()
-        location = data.get('location', 'Remote')
-        limit = max(1, min(data.get('limit', 10), 20))  # Between 1 and 20
+#         query = data['query'].strip()
+#         location = data.get('location', 'Remote')
+#         limit = max(1, min(data.get('limit', 10), 20))  # Between 1 and 20
         
-        if not query:
-            return jsonify({'error': 'query cannot be empty'}), 400
+#         if not query:
+#             return jsonify({'error': 'query cannot be empty'}), 400
         
-        logger.info(f"Public recommendation request: {query}")
+#         logger.info(f"Public recommendation request: {query}")
         
-        engine = get_recommendation_engine()
+#         engine = get_recommendation_engine()
         
-        # Search external jobs
-        jobs = engine._search_external_jobs(query, location, limit=limit)
+#         # Search external jobs
+#         jobs = engine._search_external_jobs(query, location, limit=limit)
         
-        # Calculate basic match score (since no user profile)
-        for job in jobs:
-            # Simple relevance based on query match
-            job_text = f"{job['title']} {job.get('description', '')}".lower()
-            query_words = query.lower().split()
-            matches = sum(1 for word in query_words if word in job_text)
-            job['match_score'] = (matches / len(query_words)) * 100 if query_words else 0
-            job['risk_score'] = 15  # Default safe assumption for external sources
-            job['risk_level'] = 'Low Risk'
+#         # Calculate basic match score (since no user profile)
+#         for job in jobs:
+#             # Simple relevance based on query match
+#             job_text = f"{job['title']} {job.get('description', '')}".lower()
+#             query_words = query.lower().split()
+#             matches = sum(1 for word in query_words if word in job_text)
+#             job['match_score'] = (matches / len(query_words)) * 100 if query_words else 0
+#             job['risk_score'] = 15  # Default safe assumption for external sources
+#             job['risk_level'] = 'Low Risk'
         
-        # Sort by match score
-        jobs = sorted(jobs, key=lambda x: x['match_score'], reverse=True)
+#         # Sort by match score
+#         jobs = sorted(jobs, key=lambda x: x['match_score'], reverse=True)
         
-        response = {
-            'success': True,
-            'query': query,
-            'location': location,
-            'jobs': jobs,
-            'count': len(jobs),
-            'note': 'Sign in for personalized recommendations based on your profile'
-        }
+#         response = {
+#             'success': True,
+#             'query': query,
+#             'location': location,
+#             'jobs': jobs,
+#             'count': len(jobs),
+#             'note': 'Sign in for personalized recommendations based on your profile'
+#         }
         
-        return jsonify(response), 200
+#         return jsonify(response), 200
         
-    except Exception as e:
-        logger.error(f"Public recommendation error: {e}", exc_info=True)
-        return jsonify({'error': 'Failed to get recommendations'}), 500
+#     except Exception as e:
+#         logger.error(f"Public recommendation error: {e}", exc_info=True)
+#         return jsonify({'error': 'Failed to get recommendations'}), 500
 
 
-@api_bp.route('/api/recommendations/refresh', methods=['POST'])
-@auth_required('token')
-def refresh_recommendations():
-    """
-    Refresh user's ML profile and get new recommendations
-    Useful after user has analyzed multiple new jobs
-    """
-    try:
-        user_id = current_user.id
+# @api_bp.route('/api/recommendations/refresh', methods=['POST'])
+# @auth_required('token')
+# def refresh_recommendations():
+#     """
+#     Refresh user's ML profile and get new recommendations
+#     Useful after user has analyzed multiple new jobs
+#     """
+#     try:
+#         user_id = current_user.id
         
-        engine = get_recommendation_engine()
+#         engine = get_recommendation_engine()
         
-        # Rebuild ML profile
-        ml_profile = engine.build_user_profile(user_id)
+#         # Rebuild ML profile
+#         ml_profile = engine.build_user_profile(user_id)
         
-        if not ml_profile:
-            return jsonify({
-                'success': False,
-                'message': 'Not enough job history to build ML profile. Analyze at least 3 jobs first.'
-            }), 400
+#         if not ml_profile:
+#             return jsonify({
+#                 'success': False,
+#                 'message': 'Not enough job history to build ML profile. Analyze at least 3 jobs first.'
+#             }), 400
         
-        # Get fresh recommendations
-        recommendations = engine.get_recommendations(
-            user_id=user_id,
-            limit=15,
-            include_external=True,
-            risk_filter='safe_only'
-        )
+#         # Get fresh recommendations
+#         recommendations = engine.get_recommendations(
+#             user_id=user_id,
+#             limit=15,
+#             include_external=True,
+#             risk_filter='safe_only'
+#         )
         
-        response = {
-            'success': True,
-            'message': 'Profile refreshed and recommendations updated',
-            'user_id': user_id,
-            'ml_profile': ml_profile,
-            'recommendations': recommendations,
-            'count': len(recommendations)
-        }
+#         response = {
+#             'success': True,
+#             'message': 'Profile refreshed and recommendations updated',
+#             'user_id': user_id,
+#             'ml_profile': ml_profile,
+#             'recommendations': recommendations,
+#             'count': len(recommendations)
+#         }
         
-        return jsonify(response), 200
+#         return jsonify(response), 200
         
-    except Exception as e:
-        logger.error(f"Refresh error: {e}", exc_info=True)
-        return jsonify({'error': 'Failed to refresh recommendations'}), 500
+#     except Exception as e:
+#         logger.error(f"Refresh error: {e}", exc_info=True)
+#         return jsonify({'error': 'Failed to refresh recommendations'}), 500
 
-
-@api_bp.route('/api/recommendations/stats', methods=['GET'])
-def get_recommendation_stats():
-    """Get global recommendation statistics (public endpoint)"""
-    try:
-        # Total jobs in database
-        total_jobs = Job_Posting.query.count()
-        
-        # Safe jobs (low risk)
-        safe_jobs = db.session.query(Job_Posting).join(
-            Analysis_Results,
-            Job_Posting.job_id == Analysis_Results.job_id
-        ).filter(
-            Analysis_Results.risk_score <= 30
-        ).count()
-        
-        # Users with browsing history
-        users_with_history = db.session.query(
-            Job_Posting.submitted_by
-        ).filter(
-            Job_Posting.submitted_by.isnot(None)
-        ).distinct().count()
-        
-        # Average risk score of all analyzed jobs
-        avg_risk_score = db.session.query(
-            func.avg(Analysis_Results.risk_score)
-        ).scalar() or 0
-        
-        stats = {
-            'success': True,
-            'total_jobs_analyzed': total_jobs,
-            'safe_jobs_available': safe_jobs,
-            'users_with_profiles': users_with_history,
-            'average_risk_score': round(float(avg_risk_score), 2),
-            'recommendation_engine': 'ML-Powered with TF-IDF',
-            'features': [
-                'Personalized recommendations',
-                'ML-based profile building',
-                'External job board integration',
-                'Risk-filtered results',
-                'Real-time fraud detection'
-            ]
-        }
-        
-        return jsonify(stats), 200
-        
-    except Exception as e:
-        logger.error(f"Stats error: {e}", exc_info=True)
-        return jsonify({'error': 'Failed to get statistics'}), 500
-
-
-@api_bp.route('/api/recommendations/similar/<int:job_id>', methods=['GET'])
-def get_similar_jobs(job_id):
-    """
-    Get jobs similar to a specific job (public endpoint)
-    Useful for "You might also like" feature
-    """
-    try:
-        # Get the target job
-        job = Job_Posting.query.get(job_id)
-        if not job:
-            return jsonify({'error': 'Job not found'}), 404
-        
-        # Get similar safe jobs from database
-        similar_jobs = db.session.query(
-            Job_Posting, Analysis_Results
-        ).join(
-            Analysis_Results,
-            Job_Posting.job_id == Analysis_Results.job_id
-        ).filter(
-            Job_Posting.job_id != job_id,
-            Analysis_Results.risk_score <= 30
-        ).order_by(
-            Analysis_Results.risk_score.asc()
-        ).limit(10).all()
-        
-        results = []
-        for similar_job, analysis in similar_jobs:
-            # Calculate similarity based on keywords
-            target_keywords = set(job.job_title.lower().split() + job.job_description.lower().split())
-            similar_keywords = set(similar_job.job_title.lower().split() + similar_job.job_description.lower().split())
-            
-            # Jaccard similarity
-            intersection = len(target_keywords & similar_keywords)
-            union = len(target_keywords | similar_keywords)
-            similarity_score = (intersection / union * 100) if union > 0 else 0
-            
-            results.append({
-                'job_id': similar_job.job_id,
-                'title': similar_job.job_title,
-                'company': similar_job.company_name,
-                'description': similar_job.job_description[:200],
-                'url': similar_job.url if similar_job.url != 'https://example.com/manual-entry' else None,
-                'risk_score': analysis.risk_score,
-                'risk_level': analysis.risk_level,
-                'similarity_score': round(similarity_score, 2)
-            })
-        
-        # Sort by similarity
-        results = sorted(results, key=lambda x: x['similarity_score'], reverse=True)[:5]
-        
-        response = {
-            'success': True,
-            'reference_job': {
-                'id': job.job_id,
-                'title': job.job_title,
-                'company': job.company_name
-            },
-            'similar_jobs': results,
-            'count': len(results)
-        }
-        
-        return jsonify(response), 200
-        
-    except Exception as e:
-        logger.error(f"Similar jobs error: {e}", exc_info=True)
-        return jsonify({'error': 'Failed to get similar jobs'}), 500
-        
-    except Exception as e:
-        logger.error(f"Health check failed: {str(e)}")
-        return jsonify({
-            'status': 'unhealthy',
-            'error': str(e),
-            'timestamp': datetime.utcnow().isoformat()
-        }), 500
-
-# Error handlers
-@api_bp.errorhandler(404)
-def not_found(error):
-    return jsonify({'error': 'Resource not found'}), 404
+# # Error handlers
+# @api_bp.errorhandler(404)
+# def not_found(error):
+#     return jsonify({'error': 'Resource not found'}), 404
 
 @api_bp.errorhandler(405)
 def method_not_allowed(error):
