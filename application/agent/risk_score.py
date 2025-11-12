@@ -358,7 +358,6 @@ class JobFraudDetector:
         return {
             'is_suspicious': len(reasons) > 0,
             'reasons': reasons
-<<<<<<< HEAD
         }
 
 
@@ -914,7 +913,7 @@ def analyze_text():
             'error': str(e)
         }), 500
 
-
+'''
 @app.route('/', methods=['GET'])
 def home():
     """Root endpoint with API documentation"""
@@ -952,7 +951,4 @@ def favicon():
 
 
 if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=5000)
-=======
-        }
->>>>>>> 57d40d584c1bf71876980331e5a862a94f5ee6a2
+    app.run(debug=True, host='0.0.0.0', port=5000)'''
