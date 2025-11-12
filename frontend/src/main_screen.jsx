@@ -261,7 +261,7 @@ const MainScreen = () => {
                                 }}>
                                     <div style={{ marginBottom: '1rem' }}>
                                         <span style={{ fontWeight: 700, fontSize: '1.3rem', color: result.risk_color || '#333' }}>
-                                            Risk Score: {result.risk_score} ({result.risk_level})
+                                            Risk Score - {result.risk_score} ({result.risk_level})
                                         </span>
                                         <div style={{
                                             marginTop: '0.7rem',
@@ -305,10 +305,10 @@ const MainScreen = () => {
                                         </div>
                                     </div>
                                     <div style={{ marginBottom: '1rem' }}>
-                                        <span style={{ fontWeight: 600 }}>Verdict:</span> {result.verdict}
+                                        <span style={{ fontWeight: 600 }}>Verdict -</span> {result.verdict}
                                     </div>
                                     <div style={{ marginBottom: '1rem' }}>
-                                        <span style={{ fontWeight: 600 }}>Is Scam:</span> {result.is_scam ? 'Yes' : 'No'}
+                                        <span style={{ fontWeight: 600 }}>Is Scam -</span> {result.is_scam ? 'Yes' : 'No'}
                                     </div>
                                     {result.analysis && (
                                         <>
@@ -323,19 +323,19 @@ const MainScreen = () => {
                                                     minHeight: 120
                                                 }}>
                                                     {(() => {
-                                                        const flags = Array.isArray(result.analysis.red_flags) ? result.analysis.red_flags.slice(0, 4) : [];
-                                                        while (flags.length < 4) flags.push('No flag');
+                                                        const flags = Array.isArray(result.analysis.red_flags) ? result.analysis.red_flags.slice(0, 8) : [];
+                                                        while (flags.length < 8) flags.push('No flag');
                                                         return flags.map((flag, idx) => (
                                                             <div key={idx} style={{
                                                                 background: '#fff',
                                                                 border: '2px solid #e57373',
                                                                 borderRadius: 12,
-                                                                width: 50,
-                                                                height: 50,
-                                                                minWidth: 50,
-                                                                minHeight: 50,
-                                                                maxWidth: 50,
-                                                                maxHeight: 50,
+                                                                width: 100,
+                                                                height: 100,
+                                                                minWidth: 100,
+                                                                minHeight: 100,
+                                                                maxWidth: 100,
+                                                                maxHeight: 100,
                                                                 display: 'flex',
                                                                 alignItems: 'center',
                                                                 justifyContent: 'center',
@@ -362,8 +362,7 @@ const MainScreen = () => {
                                     )}
                                     {result.auto_reply && (
                                         <div style={{ marginTop: '1.5rem', background: '#e0f7fa', borderRadius: '10px', padding: '1rem' }}>
-                                            <span style={{ fontWeight: 600 }}>Auto Reply Suggestion:</span>
-                                            {/* <div style={{ marginTop: '0.5rem', fontStyle: 'italic' }}>{result.auto_reply}</div> */}
+                                            <span style={{ fontWeight: 600 }}>Auto Reply Suggestion -</span>
                                         </div>
                                     )}
                                 </div>
