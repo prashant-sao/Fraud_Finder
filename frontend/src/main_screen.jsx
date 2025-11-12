@@ -363,7 +363,7 @@ const MainScreen = () => {
                                     {result.auto_reply && (
                                         <div style={{ marginTop: '1.5rem', background: '#e0f7fa', borderRadius: '10px', padding: '1rem' }}>
                                             <span style={{ fontWeight: 600 }}>Auto Reply Suggestion:</span>
-                                            <div style={{ marginTop: '0.5rem', fontStyle: 'italic' }}>{result.auto_reply}</div>
+                                            {/* <div style={{ marginTop: '0.5rem', fontStyle: 'italic' }}>{result.auto_reply}</div> */}
                                         </div>
                                     )}
                                 </div>
