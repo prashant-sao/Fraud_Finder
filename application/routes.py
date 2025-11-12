@@ -22,7 +22,7 @@ api_bp = Blueprint('api_bp', __name__)
 
 
 # Initialize the corporate agent
-fraud_detector = CorporateAgent()
+Corporate_agent = CorporateAgent()
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
