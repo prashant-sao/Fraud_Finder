@@ -1,11 +1,22 @@
+from flask import Flask, request, jsonify
+from flask_cors import CORS
 import re
 import requests
 from bs4 import BeautifulSoup
 from urllib.parse import urlparse
+import json
+import time
+from datetime import datetime
+
+# Import database models
+from application.models import (
+    db, Job_Posting, Analysis_Results, Fraud_Indicators,
+    Company_Verification, Community_Reports
+)
 
 
 class JobFraudDetector:
-    def _init_(self):
+    def __init__(self):
         # Red flag keywords
         self.salary_red_flags = [
             'guaranteed income', 'unlimited earning', 'earn thousands weekly',
@@ -46,6 +57,8 @@ class JobFraudDetector:
             response.raise_for_status()
             
             soup = BeautifulSoup(response.content, 'html.parser')
+            
+            # Extract text content
             text_content = soup.get_text(separator=' ', strip=True)
             
             return {
@@ -60,12 +73,16 @@ class JobFraudDetector:
                 'error': str(e)
             }
 
-    def analyze_job_posting(self, content, url):
-        """Analyze job posting for fraud indicators"""
+    def analyze_job_posting(self, content, url, user_id=None, save_to_db=True):
+        """Analyze job posting for fraud indicators and save to database"""
         content_lower = content.lower()
         fraud_score = 0
         red_flags = {}
         details = {}
+
+        # Extract basic job info
+        company_name = self._extract_company_name(content)
+        job_title = self._extract_job_title(content)
 
         # Check 1: Vague Job Description (15 points)
         vague_desc = self._check_vague_description(content)
@@ -143,19 +160,171 @@ class JobFraudDetector:
             verdict = "Appears Legitimate"
             risk_level = "Low Risk"
 
-        return {
+        analysis_result = {
             'fraud_score': fraud_score,
             'verdict': verdict,
             'risk_level': risk_level,
             'red_flags': red_flags,
-            'details': details
+            'details': details,
+            'company_name': company_name,
+            'job_title': job_title
         }
+
+        # Save to database if requested
+        if save_to_db:
+            try:
+                db_result = self._save_to_database(
+                    url=url,
+                    content=content,
+                    analysis_result=analysis_result,
+                    user_id=user_id,
+                    website_check=website_check,
+                    linkedin_check=linkedin_check
+                )
+                analysis_result['job_id'] = db_result['job_id']
+                analysis_result['analysis_id'] = db_result['analysis_id']
+            except Exception as e:
+                print(f"Error saving to database: {str(e)}")
+                # Continue without database save
+                pass
+
+        return analysis_result
+
+    def _extract_company_name(self, content):
+        """Extract company name from content"""
+        # Look for common patterns
+        patterns = [
+            r'Company:\s*([^\n]+)',
+            r'Organization:\s*([^\n]+)',
+            r'Employer:\s*([^\n]+)',
+        ]
+        
+        for pattern in patterns:
+            match = re.search(pattern, content, re.IGNORECASE)
+            if match:
+                return match.group(1).strip()
+        
+        return "Unknown Company"
+
+    def _extract_job_title(self, content):
+        """Extract job title from content"""
+        # Look for common patterns
+        patterns = [
+            r'Job Title:\s*([^\n]+)',
+            r'Position:\s*([^\n]+)',
+            r'Role:\s*([^\n]+)',
+        ]
+        
+        for pattern in patterns:
+            match = re.search(pattern, content, re.IGNORECASE)
+            if match:
+                return match.group(1).strip()
+        
+        # Fallback: use first line or first 100 chars
+        lines = content.split('\n')
+        if lines:
+            return lines[0][:100].strip()
+        
+        return "Unknown Position"
+
+    def _save_to_database(self, url, content, analysis_result, user_id, website_check, linkedin_check):
+        """Save analysis results to database"""
+        try:
+            # Create or get Job_Posting
+            job_posting = Job_Posting.query.filter_by(url=url).first()
+            
+            if not job_posting:
+                job_posting = Job_Posting(
+                    url=url,
+                    company_name=analysis_result['company_name'],
+                    job_title=analysis_result['job_title'],
+                    job_description=content[:5000],  # Limit length
+                    submitted_by=user_id,
+                    submitted_at=datetime.utcnow()
+                )
+                db.session.add(job_posting)
+                db.session.flush()  # Get the job_id
+            
+            # Create Analysis_Results
+            analysis_record = Analysis_Results(
+                job_id=job_posting.job_id,
+                risk_score=analysis_result['fraud_score'],
+                verdict=analysis_result['verdict'],
+                risk_level=analysis_result['risk_level'],
+                summary_labels=json.dumps(analysis_result['red_flags']),
+                analyzed_at=datetime.utcnow()
+            )
+            db.session.add(analysis_record)
+            db.session.flush()  # Get the analysis_id
+            
+            # Create Fraud_Indicators for each red flag
+            for flag_type, flag_value in analysis_result['red_flags'].items():
+                if flag_value:  # Only save if the flag is True
+                    severity = self._determine_severity(flag_type, analysis_result['fraud_score'])
+                    
+                    indicator = Fraud_Indicators(
+                        analysis_id=analysis_record.analysis_id,
+                        indicator_type=flag_type,
+                        description=json.dumps(analysis_result['details'].get(flag_type, {})),
+                        severity_level=severity,
+                        detected_at=datetime.utcnow(),
+                        confidence_score=1.0
+                    )
+                    db.session.add(indicator)
+            
+            # Update or create Company_Verification
+            company = Company_Verification.query.filter_by(
+                company_name=analysis_result['company_name']
+            ).first()
+            
+            if not company:
+                company = Company_Verification(
+                    company_name=analysis_result['company_name'],
+                    linkedin_url=linkedin_check.get('linkedin_url'),
+                    website_url=website_check.get('website_url'),
+                    social_presence=linkedin_check.get('has_linkedin', False),
+                    website_accessible=website_check.get('accessible', False),
+                    last_checked=datetime.utcnow(),
+                    total_jobs_posted=1
+                )
+                db.session.add(company)
+            else:
+                company.total_jobs_posted += 1
+                company.last_checked = datetime.utcnow()
+                if analysis_result['fraud_score'] >= 70:
+                    company.fraud_jobs_count += 1
+            
+            # Commit all changes
+            db.session.commit()
+            
+            return {
+                'job_id': job_posting.job_id,
+                'analysis_id': analysis_record.analysis_id
+            }
+            
+        except Exception as e:
+            db.session.rollback()
+            raise e
+
+    def _determine_severity(self, flag_type, fraud_score):
+        """Determine severity level based on flag type and overall score"""
+        high_severity_flags = ['requests_personal_details', 'unrealistic_salary']
+        medium_severity_flags = ['suspicious_contact', 'no_company_info', 'no_company_website']
+        
+        if flag_type in high_severity_flags or fraud_score >= 70:
+            return 'High'
+        elif flag_type in medium_severity_flags or fraud_score >= 40:
+            return 'Medium'
+        else:
+            return 'Low'
 
     def _check_vague_description(self, content):
         """Check if job description is too vague"""
+        # Very short description
         if len(content.split()) < 50:
             return True
         
+        # Missing key elements
         has_responsibilities = any(word in content.lower() for word in 
                                   ['responsibilities', 'duties', 'role', 'tasks'])
         has_requirements = any(word in content.lower() for word in 
@@ -171,6 +340,7 @@ class JobFraudDetector:
             if flag in content:
                 reasons.append(flag)
         
+        # Check for very high amounts without context
         salary_patterns = [
             r'\$\d{4,},?\d*\+?\s*(per|a|/)?\s*(day|week)',
             r'earn\s+\$\d{4,}'
@@ -187,12 +357,14 @@ class JobFraudDetector:
     
     def _check_linkedin_presence(self, content, content_lower):
         """Check for LinkedIn company or recruiter profile"""
+        # Look for LinkedIn URLs
         linkedin_urls = []
         
         for pattern in self.linkedin_patterns:
             matches = re.findall(pattern, content_lower)
             linkedin_urls.extend(matches)
         
+        # Also check for mentions of LinkedIn
         has_linkedin_mention = 'linkedin' in content_lower
         
         return {
@@ -203,10 +375,12 @@ class JobFraudDetector:
     
     def _check_company_website(self, content, content_lower, job_url):
         """Check for company website and verify if it's accessible"""
+        # Extract potential website URLs
         website_urls = []
         
         for pattern in self.website_patterns:
             matches = re.findall(pattern, content_lower)
+            # Filter out the job posting URL itself and common third-party sites
             filtered = [url for url in matches if url not in job_url and 
                        not any(excluded in url for excluded in 
                               ['indeed', 'linkedin', 'glassdoor', 'monster', 'naukri'])]
@@ -219,6 +393,7 @@ class JobFraudDetector:
                 'status': 'not_found'
             }
         
+        # Try to verify the first website
         website_url = website_urls[0]
         if not website_url.startswith('http'):
             website_url = 'https://' + website_url
@@ -241,21 +416,43 @@ class JobFraudDetector:
             response = requests.get(url, headers=headers, timeout=5, allow_redirects=True)
             
             if response.status_code == 200:
-                return {'accessible': True, 'status': 'active'}
+                return {
+                    'accessible': True,
+                    'status': 'active'
+                }
             else:
-                return {'accessible': False, 'status': f'error_{response.status_code}'}
+                return {
+                    'accessible': False,
+                    'status': f'error_{response.status_code}'
+                }
         except requests.exceptions.Timeout:
-            return {'accessible': False, 'status': 'timeout'}
+            return {
+                'accessible': False,
+                'status': 'timeout'
+            }
         except requests.exceptions.ConnectionError:
-            return {'accessible': False, 'status': 'connection_error'}
-        except Exception:
-            return {'accessible': False, 'status': 'unknown_error'}
+            return {
+                'accessible': False,
+                'status': 'connection_error'
+            }
+        except Exception as e:
+            return {
+                'accessible': False,
+                'status': 'unknown_error'
+            }
 
     def _check_company_info(self, content, url):
         """Check if company information is missing or suspicious"""
+        domain = urlparse(url).netloc
+        
+        # Check for company name
         has_company = any(word in content for word in 
                          ['company', 'corporation', 'inc', 'llc', 'ltd'])
+        
+        # Check for company website
         has_website = 'website' in content or 'www.' in content
+        
+        # Check for physical address
         has_address = any(word in content for word in 
                          ['address', 'location', 'office', 'headquarters'])
         
@@ -310,56 +507,3 @@ class JobFraudDetector:
             'is_suspicious': len(reasons) > 0,
             'reasons': reasons
         }
-
-
-from flask import Flask, request, jsonify
-from flask_cors import CORS
-
-app = Flask(__name__)
-CORS(app)
-
-# Initialize detector
-detector = JobFraudDetector()
-
-@app.route('/api/analyze', methods=['POST'])
-def analyze_job():
-    """Main endpoint to analyze a job posting URL"""
-    try:
-        data = request.get_json()
-        
-        if not data or 'url' not in data:
-            return jsonify({
-                'success': False,
-                'error': 'URL is required'
-            }), 400
-        
-        url = data['url']
-        
-        # Fetch job posting
-        fetch_result = detector.fetch_job_posting(url)
-        
-        if not fetch_result['success']:
-            return jsonify({
-                'success': False,
-                'error': f"Failed to fetch job posting: {fetch_result['error']}"
-            }), 400
-        
-        # Analyze for fraud
-        analysis = detector.analyze_job_posting(fetch_result['content'], url)
-        
-        return jsonify({
-            'success': True,
-            'url': url,
-            'job_title': fetch_result['title'],
-            'fraud_score': analysis['fraud_score'],
-            'verdict': analysis['verdict'],
-            'risk_level': analysis['risk_level'],
-            'red_flags': analysis['red_flags'],
-            'details': analysis['details']
-        })
-        
-    except Exception as e:
-        return jsonify({
-            'success': False,
-            'error': str(e)
-        }), 500
