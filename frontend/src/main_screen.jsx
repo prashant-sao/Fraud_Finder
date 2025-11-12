@@ -4,14 +4,17 @@ import "./App.css";
 import LoginScreen from "./login_screen";
 import SignUpPage from "./sign_up_page";
 import ProfilePage from "./profile_page";
-import AnalysisPage from "./analysis_page";
 
 const MainScreen = () => {
     const [showSignUp, setShowSignUp] = useState(false);
     const [showLogin, setShowLogin] = useState(false);
     const [userName, setUserName] = useState("");
     const [showProfile, setShowProfile] = useState(false);
-    const [showAnalysis, setShowAnalysis] = useState(false);
+    // Analysis state
+    const [input, setInput] = useState("");
+    const [analysisType, setAnalysisType] = useState("quick");
+    const [result, setResult] = useState(null);
+    const [loading, setLoading] = useState(false);
 
     // Handler for successful login/sign
     const handleAuthSuccess = (name) => {
@@ -29,9 +32,43 @@ const MainScreen = () => {
     if (showProfile) {
         return <ProfilePage userName={userName} onBack={() => setShowProfile(false)} />;
     }
-    if (showAnalysis) {
-        return <AnalysisPage onBack={() => setShowAnalysis(false)} />;
-    }
+
+    // Analysis logic (from AnalysisPage)
+    const handleAnalyze = async (e) => {
+        e.preventDefault();
+        setResult(null);
+        if (!input.trim()) {
+            setResult({ error: "Please enter a job posting URL or description." });
+            return;
+        }
+        // Detect if input is a URL
+        const isUrl = /^https?:\/\//i.test(input.trim());
+        const payload = {
+            job_text: isUrl ? "" : input.trim(),
+            job_url: isUrl ? input.trim() : "",
+            company_name: "",
+            analysis_type: analysisType,
+            job_title: ""
+        };
+        setLoading(true);
+        try {
+            const response = await fetch("/api/analyze", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(payload)
+            });
+            const data = await response.json();
+            if (!response.ok || data.error) {
+                setResult({ error: data.error || "Failed to analyze. Please try again." });
+            } else {
+                setResult(data);
+            }
+        } catch (err) {
+            setResult({ error: err.message });
+        } finally {
+            setLoading(false);
+        }
+    };
 
     return (
         <div className="main-screen-container" style={{ minHeight: "100vh", display: "flex", flexDirection: "column" }}>
@@ -40,14 +77,12 @@ const MainScreen = () => {
                 <h2 style={{ fontFamily: 'JomolhariReg' }}>Spot fake job postings before you apply</h2>
                 <div>
                     {userName ? (
-                        <>
-                            <span
-                                style={{ fontFamily: 'JomolhariReg', fontWeight: 600, fontSize: 20, color: "#32BCAE", marginRight: "1rem", cursor: "pointer", textDecoration: "underline" }}
-                                onClick={() => setShowProfile(true)}
-                            >
-                                Welcome, {userName}
-                            </span>
-                        </>
+                        <span
+                            style={{ fontFamily: 'JomolhariReg', fontWeight: 600, fontSize: 20, color: "#32BCAE", marginRight: "1rem", cursor: "pointer", textDecoration: "underline" }}
+                            onClick={() => setShowProfile(true)}
+                        >
+                            Welcome, {userName}
+                        </span>
                     ) : (
                         <>
                             <button
@@ -61,13 +96,6 @@ const MainScreen = () => {
                                 onClick={() => setShowLogin(true)}
                             >
                                 Log In
-                            </button>
-
-                            <button
-                                style={{ fontFamily: 'JomolhariReg', marginRight: "1rem", padding: "0.5rem 1.2rem", borderRadius: "25px", border: "none", background: "#5c5c5cff", color: "#fff", fontWeight: 600, cursor: "pointer" }}
-                                onClick={() => setShowProfile(true)}
-                            >
-                                Profile
                             </button>
                         </>
                     )}
@@ -136,7 +164,10 @@ const MainScreen = () => {
                                         padding: "1rem",
                                         background: "transparent"
                                     }}
-                                    placeholder="Paste the job posting URL or the full text here"
+                                    placeholder={userName ? "Paste the job posting URL or the full text here" : "Log in to analyze job postings"}
+                                    value={input}
+                                    onChange={e => setInput(e.target.value)}
+                                    disabled={!userName}
                                 />
                             </div>
                             <div>
@@ -145,30 +176,210 @@ const MainScreen = () => {
                                         Choose analysis type -
                                     </div>
                                     <div style={{ display: "flex", gap: "2rem", alignItems: "center" }}>
-                                        <label style={{ fontFamily: 'JomolhariReg', fontSize: "1rem", display: "flex", alignItems: "center", cursor: "pointer" }}>
-                                            <input type="radio" name="inputType" value="url" style={{ marginRight: "0.5rem" }} defaultChecked />
+                                        <label style={{ fontFamily: 'JomolhariReg', fontSize: "1rem", display: "flex", alignItems: "center", cursor: userName ? "pointer" : "not-allowed", opacity: userName ? 1 : 0.5 }}>
+                                            <input
+                                                type="radio"
+                                                name="analysisType"
+                                                value="quick"
+                                                checked={analysisType === "quick"}
+                                                onChange={() => userName && setAnalysisType("quick")}
+                                                style={{ marginRight: "0.5rem" }}
+                                                disabled={!userName}
+                                            />
                                             Quick
                                         </label>
-                                        <label style={{ fontFamily: 'JomolhariReg', fontSize: "1rem", display: "flex", alignItems: "center", cursor: "pointer" }}>
-                                            <input type="radio" name="inputType" value="description" style={{ marginRight: "0.5rem" }} />
+                                        <label style={{ fontFamily: 'JomolhariReg', fontSize: "1rem", display: "flex", alignItems: "center", cursor: userName ? "pointer" : "not-allowed", opacity: userName ? 1 : 0.5 }}>
+                                            <input
+                                                type="radio"
+                                                name="analysisType"
+                                                value="detailed"
+                                                checked={analysisType === "detailed"}
+                                                onChange={() => userName && setAnalysisType("detailed")}
+                                                style={{ marginRight: "0.5rem" }}
+                                                disabled={!userName}
+                                            />
                                             Detailed
                                         </label>
                                     </div>
                                 </div>
                             </div>
-                            <button style={{
-                                fontSize: "1rem",
-                                fontFamily: 'JomolhariReg',
-                                marginTop: "1.5rem",
-                                padding: "0.7rem 1.5rem",
-                                borderRadius: "25px",
-                                border: "none",
-                                background: "#32BCAE",
-                                color: "#fff",
-                                fontWeight: 600,
-                                cursor: "pointer",
-                            }} onClick={() => setShowAnalysis(true)}>Analyze Job Posting</button>
-
+                            <form onSubmit={handleAnalyze}>
+                                <button
+                                    type="submit"
+                                    style={{
+                                        fontSize: "1rem",
+                                        fontFamily: 'JomolhariReg',
+                                        marginTop: "1.5rem",
+                                        padding: "0.7rem 1.5rem",
+                                        borderRadius: "25px",
+                                        border: "none",
+                                        background: !userName ? "#bdbdbd" : (loading ? "#b2dfdb" : "#32BCAE"),
+                                        color: "#fff",
+                                        fontWeight: 600,
+                                        cursor: !userName ? "not-allowed" : (loading ? "not-allowed" : "pointer")
+                                    }}
+                                    disabled={loading || !userName}
+                                >
+                                    {loading ? "Analyzing..." : "Analyze Job Posting"}
+                                </button>
+                            </form>
+                            {!userName && (
+                                <div style={{
+                                    marginTop: "1.2rem",
+                                    color: "#b71c1c",
+                                    fontFamily: 'JomolhariReg',
+                                    fontSize: "1.1rem",
+                                    textAlign: "center"
+                                }}>
+                                    Please log in to analyze job postings.
+                                </div>
+                            )}
+                            {result && result.error ? (
+                                <div style={{
+                                    marginTop: "2rem",
+                                    background: "#ffebee",
+                                    borderRadius: "15px",
+                                    padding: "1.2rem 2rem",
+                                    color: "#b71c1c",
+                                    fontFamily: 'JomolhariReg',
+                                    fontSize: "1.1rem",
+                                    textAlign: "left",
+                                    border: "1px solid #e57373"
+                                }}>
+                                    <span style={{ fontWeight: 600 }}>Failed to analyze:</span> {result.error}
+                                </div>
+                            ) : result && typeof result === 'object' ? (
+                                <div style={{
+                                    marginTop: "2rem",
+                                    background: "#f0f4c3",
+                                    borderRadius: "15px",
+                                    padding: "1.5rem 2rem",
+                                    color: "#333",
+                                    fontFamily: 'JomolhariReg',
+                                    fontSize: "1.1rem",
+                                    textAlign: "left"
+                                }}>
+                                    <div style={{ marginBottom: '1rem' }}>
+                                        <span style={{ fontWeight: 700, fontSize: '1.3rem', color: result.risk_color || '#333' }}>
+                                            Risk Score: {result.risk_score} ({result.risk_level})
+                                        </span>
+                                        <div style={{
+                                            marginTop: '0.7rem',
+                                            marginBottom: '0.5rem',
+                                            width: '100%',
+                                            maxWidth: 400,
+                                            height: 22,
+                                            background: 'linear-gradient(90deg, #e53935 0%, #fbc02d 50%, #43a047 100%)',
+                                            borderRadius: 12,
+                                            position: 'relative',
+                                            boxShadow: '0 2px 8px rgba(44,62,80,0.07)'
+                                        }}>
+                                            <div style={{
+                                                position: 'absolute',
+                                                left: 0,
+                                                top: 0,
+                                                height: '100%',
+                                                width: `${Math.max(0, Math.min(100, result.risk_score))}%`,
+                                                borderRadius: 12,
+                                                background: 'rgba(255,255,255,0.15)',
+                                                border: '2px solid #fff',
+                                                boxSizing: 'border-box',
+                                                transition: 'width 0.5s cubic-bezier(.4,2,.6,1)'
+                                            }} />
+                                            <div style={{
+                                                position: 'absolute',
+                                                left: `${Math.max(0, Math.min(100, result.risk_score))}%`,
+                                                top: 0,
+                                                transform: 'translateX(-50%)',
+                                                color: '#222',
+                                                fontWeight: 700,
+                                                fontSize: 14,
+                                                lineHeight: '22px',
+                                                padding: '0 6px',
+                                                background: 'rgba(255,255,255,0.85)',
+                                                borderRadius: 8,
+                                                boxShadow: '0 1px 4px rgba(44,62,80,0.08)'
+                                            }}>
+                                                {result.risk_score}
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div style={{ marginBottom: '1rem' }}>
+                                        <span style={{ fontWeight: 600 }}>Verdict:</span> {result.verdict}
+                                    </div>
+                                    <div style={{ marginBottom: '1rem' }}>
+                                        <span style={{ fontWeight: 600 }}>Is Scam:</span> {result.is_scam ? 'Yes' : 'No'}
+                                    </div>
+                                    {result.analysis && (
+                                        <>
+                                            <div style={{ marginBottom: '1rem' }}>
+                                                <span style={{ fontWeight: 600 }}>Red Flags:</span>
+                                                <div style={{
+                                                    display: 'grid',
+                                                    gridTemplateColumns: '1fr 1fr',
+                                                    gap: '1rem',
+                                                    marginTop: '0.7rem',
+                                                    marginBottom: '0.5rem',
+                                                    minHeight: 120
+                                                }}>
+                                                    {(() => {
+                                                        const flags = Array.isArray(result.analysis.red_flags) ? result.analysis.red_flags.slice(0, 4) : [];
+                                                        while (flags.length < 4) flags.push('No flag');
+                                                        return flags.map((flag, idx) => (
+                                                            <div key={idx} style={{
+                                                                background: '#fff',
+                                                                border: '2px solid #e57373',
+                                                                borderRadius: 12,
+                                                                width: 50,
+                                                                height: 50,
+                                                                minWidth: 50,
+                                                                minHeight: 50,
+                                                                maxWidth: 50,
+                                                                maxHeight: 50,
+                                                                display: 'flex',
+                                                                alignItems: 'center',
+                                                                justifyContent: 'center',
+                                                                fontWeight: 500,
+                                                                fontSize: 13,
+                                                                color: '#b71c1c',
+                                                                boxShadow: '0 2px 8px rgba(44,62,80,0.07)',
+                                                                padding: 0,
+                                                                textAlign: 'center',
+                                                                transition: 'background 0.3s',
+                                                                overflow: 'hidden',
+                                                                wordBreak: 'break-word'
+                                                            }}>
+                                                                {flag}
+                                                            </div>
+                                                        ));
+                                                    })()}
+                                                </div>
+                                            </div>
+                                            <div style={{ marginBottom: '1rem' }}>
+                                                <div style={{ marginLeft: '1em' }}>{result.analysis.llm_analysis}</div>
+                                            </div>
+                                        </>
+                                    )}
+                                    {result.auto_reply && (
+                                        <div style={{ marginTop: '1.5rem', background: '#e0f7fa', borderRadius: '10px', padding: '1rem' }}>
+                                            <span style={{ fontWeight: 600 }}>Auto Reply Suggestion:</span>
+                                            <div style={{ marginTop: '0.5rem', fontStyle: 'italic' }}>{result.auto_reply}</div>
+                                        </div>
+                                    )}
+                                </div>
+                            ) : result && (
+                                <div style={{
+                                    marginTop: "2rem",
+                                    background: "#f0f4c3",
+                                    borderRadius: "15px",
+                                    padding: "1rem",
+                                    color: "#333",
+                                    fontFamily: 'JomolhariReg',
+                                    fontSize: "1.1rem"
+                                }}>
+                                    {typeof result === 'string' ? result : JSON.stringify(result)}
+                                </div>
+                            )}
                         </div>
                     </div>
                     <div style={{ display: "flex", alignItems: "right", height: "100%" }}>

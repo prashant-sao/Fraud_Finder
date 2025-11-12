@@ -14,7 +14,7 @@ import time
 import sqlite3
 from contextlib import contextmanager
 
-app = Flask(_name_)
+app = Flask(__name__)
 CORS(app)
 
 # Database configuration
@@ -1249,5 +1249,5 @@ def home():
     })
 
 
-if _name_ == '_main_':
+if __name__ == '_main_':
     app.run(debug=True, host='0.0.0.0', port=5002)
