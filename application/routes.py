@@ -1,141 +1,86 @@
 from flask import Blueprint, jsonify, request, render_template
 from flask_security import auth_required, current_user, login_user
-from sqlalchemy import func
-from werkzeug.security import check_password_hash
+from werkzeug.security import generate_password_hash, check_password_hash
 from application.database import db
-from application.models import (
-    User, Job_Posting, Analysis_Results, 
-    Fraud_Indicators, Company_Verification, Community_Reports,
-    Trending_Fraud_Job
-)
 import requests
 from bs4 import BeautifulSoup
 import re
 import logging
-from datetime import datetime
-import json
-from functools import wraps
-from urllib.parse import urlparse
 
-# Import fraud detection systems
+# Import your fraud detection modules
 from application.agent.corporate_agent import CorporateAgent
 from application.agent.auto_reply import generate_auto_reply
 from application.agent.scam_checker import add_scam_to_database
+
 from application.agent.risk_score import JobFraudDetector
 
+
+fraud_detector = JobFraudDetector()
+
 api_bp = Blueprint('api_bp', __name__)
+
+
+
+# Initialize the corporate agent
+fraud_detector = CorporateAgent()
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
-# Initialize detectors (single initialization)
-corporate_agent = None
-job_fraud_detector = None
-
-def init_detectors():
-    global corporate_agent, job_fraud_detector
-    if corporate_agent is None:
-        corporate_agent = CorporateAgent()
-    if job_fraud_detector is None:
-        job_fraud_detector = JobFraudDetector()
-
-def validate_json_request(required_fields=None):
-    """Decorator to validate JSON requests"""
-    def decorator(f):
-        @wraps(f)
-        def decorated_function(*args, **kwargs):
-            data = request.get_json()
-            if not data:
-                return jsonify({'error': 'No JSON data provided'}), 400
-            
-            if required_fields:
-                missing = [field for field in required_fields if not data.get(field)]
-                if missing:
-                    return jsonify({'error': f'Missing required fields: {", ".join(missing)}'}), 400
-            
-            return f(*args, **kwargs)
-        return decorated_function
-    return decorator
 
 @api_bp.route('/')
 def index():
     return render_template('frontend/index.html')
 
 @api_bp.route('/api/register', methods=['POST'])
-@validate_json_request(['email', 'username', 'password'])
 def register():
-    """User registration endpoint with improved error handling"""
     try:
         credentials = request.get_json()
         
-        # Input validation
-        email = credentials['email'].strip().lower()
-        username = credentials['username'].strip()
-        password = credentials['password']
+        # Validate required fields
+        required_fields = ['email', 'username', 'password']
+        for field in required_fields:
+            if not credentials.get(field):
+                return jsonify({"message": f"{field} is required"}), 400
         
-        # Email format validation
-        email_pattern = re.compile(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$')
-        if not email_pattern.match(email):
-            return jsonify({"message": "Invalid email format"}), 400
-        
-        # Password strength validation
-        if len(password) < 8:
-            return jsonify({"message": "Password must be at least 8 characters"}), 400
-        
-        # Check for existing user
-        if User.query.filter_by(email=email).first():
-            return jsonify({"message": "User with this email already exists"}), 400
+        # Check if user already exists
+        if api_bp.security.datastore.find_user(email=credentials['email']):
+            return jsonify({"message": "User already exists"}), 400
             
-        if User.query.filter_by(username=username).first():
+        if api_bp.security.datastore.find_user(username=credentials['username']):
             return jsonify({"message": "Username already taken"}), 400
         
-        # Create user using Flask-Security's datastore
-        # Note: This assumes api_bp.security is properly initialized
-        # If not available, use direct User model creation
-        try:
-            new_user = api_bp.security.datastore.create_user(
-                email=email,
-                username=username,
-                password=password,  # Flask-Security handles hashing
-                qualifications=credentials.get('qualification', ''),
-                fields_of_interest=credentials.get('fields_of_interest', '')
-            )
-        except AttributeError:
-            # Fallback if security datastore not available
-            from werkzeug.security import generate_password_hash
-            new_user = User(
-                email=email,
-                username=username,
-                password=generate_password_hash(password),
-                qualifications=credentials.get('qualification', ''),
-                fields_of_interest=credentials.get('fields_of_interest', '')
-            )
-            db.session.add(new_user)
+        new_user = api_bp.security.datastore.create_user(
+            email=credentials['email'],
+            username=credentials['username'], 
+            password=generate_password_hash(credentials['password']),
+            qualifications=credentials.get('qualification', ''),
+            fields_of_interest=credentials.get('fields_of_interest', '')
+        )
         
         db.session.commit()
-        logger.info(f"New user registered: {username}")
         return jsonify({"message": "User registered successfully"}), 201
         
     except Exception as e:
-        logger.error(f"Registration error: {str(e)}", exc_info=True)
+        logger.error(f"Registration error: {str(e)}")
         db.session.rollback()
-        return jsonify({"message": "Registration failed. Please try again."}), 500
+        return jsonify({"message": "Registration failed"}), 500
 
 @api_bp.route('/api/login', methods=['POST'])
-@validate_json_request(['email', 'password'])
 def login():
-    """User login endpoint with improved security"""
     try:
         data = request.get_json()
-        email = data['email'].strip().lower()
-        password = data['password']
+        email = data.get('email')  # Changed from username to email
+        password = data.get('password')
 
-        user = User.query.filter_by(email=email).first()
+        if not email or not password:
+            return jsonify({'message': 'Email and password are required!'}), 400
+
+        # Find user by email
+        user = api_bp.security.datastore.find_user(email=email)
         
         if user and check_password_hash(user.password, password):
             login_user(user)
-            logger.info(f"User logged in: {user.username}")
             return jsonify({
                 'message': 'Login successful!',
                 'user': {
@@ -145,866 +90,310 @@ def login():
                 }
             }), 200
         else:
-            # Don't reveal which field is incorrect
-            logger.warning(f"Failed login attempt for email: {email}")
-            return jsonify({'message': 'Invalid credentials'}), 401
+            return jsonify({'message': 'Invalid email or password!'}), 401
             
     except Exception as e:
-        logger.error(f"Login error: {str(e)}", exc_info=True)
-        return jsonify({'message': 'Login failed. Please try again.'}), 500
-
-@api_bp.route('/api/logout', methods=['POST'])
-@auth_required('token')
-def logout():
-    """User logout endpoint"""
-    try:
-        # Get current user info before logout
-        username = current_user.username
-        user_id = current_user.id
-        
-        # Logout the user (Flask-Security handles session/token invalidation)
-        from flask_security import logout_user
-        logout_user()
-        
-        logger.info(f"User logged out: {username} (ID: {user_id})")
-        
-        return jsonify({
-            'success': True,
-            'message': 'Logged out successfully'
-        }), 200
-        
-    except Exception as e:
-        logger.error(f"Logout error: {str(e)}", exc_info=True)
-        return jsonify({
-            'success': False,
-            'message': 'Logout failed. Please try again.'
-        }), 500
+        logger.error(f"Login error: {str(e)}")
+        return jsonify({'message': 'Login failed'}), 500
 
 @api_bp.route('/api/edit_profile', methods=['PUT'])
 @auth_required('token')
 def edit_profile():
-    """Update user profile with validation"""
     try:
         data = request.get_json()
-        if not data:
-            return jsonify({'message': 'No data provided'}), 400
-            
-        user = User.query.get(current_user.id)
-        if not user:
-            return jsonify({'message': 'User not found'}), 404
+        user = api_bp.security.datastore.find_user(id=current_user.id)
 
-        # Update username
-        if 'username' in data and data['username'].strip():
-            new_username = data['username'].strip()
-            existing_user = User.query.filter_by(username=new_username).first()
+        if 'username' in data:
+            # Check if username is already taken by another user
+            existing_user = api_bp.security.datastore.find_user(username=data['username'])
             if existing_user and existing_user.id != current_user.id:
                 return jsonify({'message': 'Username already taken!'}), 400
-            user.username = new_username
+            user.username = data['username']
             
-        # Update email
-        if 'email' in data and data['email'].strip():
-            new_email = data['email'].strip().lower()
-            email_pattern = re.compile(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$')
-            if not email_pattern.match(new_email):
-                return jsonify({'message': 'Invalid email format'}), 400
-                
-            existing_user = User.query.filter_by(email=new_email).first()
+        if 'email' in data:
+            # Check if email is already taken by another user
+            existing_user = api_bp.security.datastore.find_user(email=data['email'])
             if existing_user and existing_user.id != current_user.id:
                 return jsonify({'message': 'Email already taken!'}), 400
-            user.email = new_email
+            user.email = data['email']
             
-        # Update password
-        if 'password' in data and data['password']:
-            if len(data['password']) < 8:
-                return jsonify({'message': 'Password must be at least 8 characters'}), 400
-            from werkzeug.security import generate_password_hash
+        if 'password' in data:
             user.password = generate_password_hash(data['password'])
-            
-        # Update other fields
         if 'qualifications' in data:
             user.qualifications = data['qualifications']
         if 'fields_of_interest' in data:
             user.fields_of_interest = data['fields_of_interest']
 
         db.session.commit()
-        logger.info(f"Profile updated for user: {user.username}")
         return jsonify({'message': 'Profile updated successfully!'}), 200
         
     except Exception as e:
-        logger.error(f"Profile update error: {str(e)}", exc_info=True)
+        logger.error(f"Profile update error: {str(e)}")
         db.session.rollback()
         return jsonify({'message': 'Profile update failed'}), 500
 
-def is_valid_url(url):
-    """Validate URL format and safety"""
-    try:
-        result = urlparse(url)
-        # Check for valid scheme and network location
-        if not all([result.scheme, result.netloc]):
-            return False
-        # Only allow http and https
-        if result.scheme not in ['http', 'https']:
-            return False
-        # Block localhost and private IPs
-        blocked_domains = ['localhost', '127.0.0.1', '0.0.0.0', '192.168.', '10.', '172.16.']
-        if any(blocked in result.netloc for blocked in blocked_domains):
-            return False
-        return True
-    except Exception:
-        return False
-
 def scrape_job_posting(url):
-    """Scrape job posting content from URL with improved error handling"""
-    if not is_valid_url(url):
-        return {'success': False, 'error': 'Invalid or unsafe URL'}
-    
+    """Scrape job posting content from URL"""
     try:
         headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
         }
-        
-        # Add timeout and size limit
-        response = requests.get(url, headers=headers, timeout=10, stream=True)
+        response = requests.get(url, headers=headers, timeout=10)
         response.raise_for_status()
-        
-        # Check content size (limit to 5MB)
-        content_length = response.headers.get('content-length')
-        if content_length and int(content_length) > 5 * 1024 * 1024:
-            return {'success': False, 'error': 'Content too large'}
         
         soup = BeautifulSoup(response.content, 'html.parser')
         
         # Remove script and style elements
-        for script in soup(["script", "style", "noscript"]):
+        for script in soup(["script", "style"]):
             script.decompose()
         
-        # Extract text
-        text = soup.get_text(separator=' ', strip=True)
+        # Get text content
+        text = soup.get_text()
         
-        # Clean up whitespace
-        text = re.sub(r'\s+', ' ', text).strip()
+        # Clean up text
+        lines = (line.strip() for line in text.splitlines())
+        chunks = (phrase.strip() for line in lines for phrase in line.split("  "))
+        text = ' '.join(chunk for chunk in chunks if chunk)
         
-        # Extract title safely
-        title_tag = soup.find('title')
-        title = title_tag.get_text(strip=True) if title_tag else 'Unknown'
+        return text[:5000]  # Limit text length
         
-        return {
-            'text': text[:5000],  # Limit text length
-            'title': title[:200],  # Limit title length
-            'success': True
-        }
-        
-    except requests.exceptions.Timeout:
-        logger.error(f"Timeout scraping: {url}")
-        return {'success': False, 'error': 'Request timeout'}
-    except requests.exceptions.RequestException as e:
-        logger.error(f"Request error scraping {url}: {str(e)}")
-        return {'success': False, 'error': f'Failed to fetch URL: {str(e)}'}
+    except requests.RequestException as e:
+        logger.error(f"Scraping error: {str(e)}")
+        return None
     except Exception as e:
-        logger.error(f"Scraping error for {url}: {str(e)}", exc_info=True)
-        return {'success': False, 'error': f'Scraping failed: {str(e)}'}
-
-def save_analysis_to_db(url, job_title, company_name, content, analysis_result, detection_method, user_id=None):
-    """Save job posting and analysis results to database with transaction safety"""
-    try:
-        # Sanitize inputs
-        url = url[:500] if url else 'Unknown'
-        job_title = job_title[:200] if job_title else 'Unknown Position'
-        company_name = company_name[:200] if company_name else 'Unknown Company'
-        content = content[:5000] if content else ''
-        
-        # Create job posting
-        job_posting = Job_Posting(
-            url=url,
-            company_name=company_name,
-            job_title=job_title,
-            job_description=content,
-            submitted_at=datetime.utcnow(),
-            submitted_by=user_id
-        )
-        db.session.add(job_posting)
-        db.session.flush()
-        
-        # Determine verdict based on risk score
-        risk_score = int(analysis_result.get('risk_score', 0))
-        risk_score = max(0, min(100, risk_score))  # Clamp to 0-100
-        
-        if risk_score >= 70:
-            verdict = "Likely Fraudulent"
-            risk_level = "High Risk"
-        elif risk_score >= 40:
-            verdict = "Possibly Fraudulent"
-            risk_level = "Medium Risk"
-        else:
-            verdict = "Appears Legitimate"
-            risk_level = "Low Risk"
-        
-        # Create analysis record
-        red_flags = analysis_result.get('red_flags', [])
-        analysis = Analysis_Results(
-            risk_score=risk_score,
-            summary_labels=json.dumps(red_flags[:20]),  # Limit red flags
-            verdict=verdict,
-            risk_level=risk_level,
-            job_id=job_posting.job_id
-        )
-        db.session.add(analysis)
-        db.session.flush()
-        
-        # Add fraud indicators
-        severity_keywords = {
-            'Critical': ['payment', 'money', 'bank', 'ssn', 'credit card', 'wire transfer'],
-            'High': ['salary', 'website', 'linkedin', 'urgent', 'guarantee'],
-            'Medium': ['contact', 'email', 'phone', 'apply now'],
-            'Low': []
-        }
-        
-        for flag in red_flags[:10]:  # Limit to 10 indicators
-            flag_str = str(flag).lower()
-            severity = 'Low'
-            
-            for sev_level, keywords in severity_keywords.items():
-                if any(keyword in flag_str for keyword in keywords):
-                    severity = sev_level
-                    break
-            
-            fraud_indicator = Fraud_Indicators(
-                indicator_type=str(flag)[:100],
-                description=f"Red flag detected: {flag} (Method: {detection_method})"[:500],
-                severity_level=severity,
-                analysis_id=analysis.analysis_id
-            )
-            db.session.add(fraud_indicator)
-        
-        # Update or create company verification
-        existing_company = Company_Verification.query.filter_by(
-            company_name=company_name
-        ).first()
-        
-        company_info = analysis_result.get('company_legitimacy', {})
-        
-        if not existing_company:
-            company_verification = Company_Verification(
-                company_name=company_name,
-                linkedin_url=None,
-                website_url=company_info.get('website', '')[:500] if company_info.get('website') else None,
-                social_presence=bool(company_info.get('linkedin_exists', False)),
-                reputation_score=max(0, min(100, 100 - risk_score)),
-                is_verified=risk_score < 40,
-                website_accessible=bool(company_info.get('website_exists', False)),
-                total_jobs_posted=1,
-                fraud_jobs_count=1 if risk_score >= 70 else 0
-            )
-            db.session.add(company_verification)
-        else:
-            existing_company.total_jobs_posted += 1
-            if risk_score >= 70:
-                existing_company.fraud_jobs_count += 1
-            existing_company.last_checked = datetime.utcnow()
-            
-            # Weighted average for reputation score
-            new_score = 100 - risk_score
-            existing_company.reputation_score = int(
-                (existing_company.reputation_score * 0.7) + (new_score * 0.3)
-            )
-        
-        db.session.commit()
-        
-        return {
-            'success': True,
-            'job_id': job_posting.job_id,
-            'analysis_id': analysis.analysis_id
-        }
-        
-    except Exception as e:
-        logger.error(f"Database save error: {str(e)}", exc_info=True)
-        db.session.rollback()
-        return {
-            'success': False,
-            'error': str(e)
-        }
+        logger.error(f"Unexpected scraping error: {str(e)}")
+        return None
 
 @api_bp.route('/api/analyze', methods=['POST'])
 def analyze_job_posting():
-    """
-    Two-Tier Fraud Detection System with improved error handling
-    - 'quick': Fast rule-based analysis (free, instant)
-    - 'detailed': Deep LLM-powered analysis (Ollama)
-    """
+    """Main API endpoint for analyzing job postings"""
     try:
-        # Initialize detectors
-        init_detectors()
-        
         data = request.get_json()
+        
         if not data:
             return jsonify({'error': 'No data provided'}), 400
-
-        # Extract and validate parameters
+        
         job_text = data.get('job_text', '').strip()
         job_url = data.get('job_url', '').strip()
-        company_name = data.get('company_name', 'Unknown Company').strip()[:200]
-        analysis_type = data.get('analysis_type', 'quick').lower()
-        job_title = data.get('job_title', 'Unknown Position').strip()[:200]
-        user_id = current_user.id if current_user.is_authenticated else None
-
-        # Validate analysis type
-        if analysis_type not in ['quick', 'detailed']:
-            return jsonify({'error': 'analysis_type must be "quick" or "detailed"'}), 400
-
-        # Handle URL input
+        analysis_type = data.get('analysis_type', 'quick')  # 'quick' or 'detailed'
+        user_id = data.get('user_id')  # Get user_id if provided
+        
+        # Determine input source
         if job_url:
-            if not is_valid_url(job_url):
-                return jsonify({'error': 'Invalid or unsafe URL format'}), 400
-
-            logger.info(f"URL provided: {job_url}")
-
-            # Scrape if no text provided
-            if not job_text:
-                scraped_result = scrape_job_posting(job_url)
-                if not scraped_result.get('success'):
-                    error_msg = scraped_result.get('error', 'Failed to scrape job posting')
-                    return jsonify({'error': error_msg}), 400
-                    
-                job_text = scraped_result.get('text', '')
-                if scraped_result.get('title') and scraped_result['title'] != 'Unknown':
-                    job_title = scraped_result['title']
-                logger.info(f"Scraped {len(job_text)} characters")
-        else:
-            # No URL provided
-            if not job_text:
-                return jsonify({'error': 'Either job_text or job_url must be provided'}), 400
+            # Validate URL format
+            url_pattern = re.compile(
+                r'^https?://'  # http:// or https://
+                r'(?:(?:[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?\.)+[A-Z]{2,6}\.?|'  # domain...
+                r'localhost|'  # localhost...
+                r'\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})'  # ...or ip
+                r'(?::\d+)?'  # optional port
+                r'(?:/?|[/?]\S+)$', re.IGNORECASE)
+            
+            if not url_pattern.match(job_url):
+                return jsonify({'error': 'Invalid URL format'}), 400
+            
+            # Use the fraud_detector to fetch content from URL
+            fetch_result = fraud_detector.fetch_job_posting(job_url)
+            
+            if not fetch_result['success']:
+                return jsonify({'error': f'Failed to fetch job posting: {fetch_result["error"]}'}), 400
+            
+            job_text = fetch_result['content']
+            
+        elif not job_text:
+            return jsonify({'error': 'Either job_text or job_url must be provided'}), 400
+        
+        # Set URL if not provided
+        if not job_url:
             job_url = 'https://example.com/manual-entry'
-
-        # Validate text length
-        if len(job_text) < 50:
-            return jsonify({'error': 'Job description too short (minimum 50 characters)'}), 400
-
-        analysis_start = datetime.now()
-        final_analysis = None
-        detection_method = None
-
-        # Perform analysis based on type
-        if analysis_type == 'quick':
-            logger.info("Starting QUICK analysis (rule-based)")
-            try:
-                quick_scan = job_fraud_detector.analyze_job_posting(job_text, job_url)
-                analysis_time = (datetime.now() - analysis_start).total_seconds()
-
-                final_analysis = {
-                    'risk_score': quick_scan.get('fraud_score', 50),
-                    'verdict': quick_scan.get('verdict', 'Unknown'),
-                    'risk_level': quick_scan.get('risk_level', 'Medium'),
-                    'risk_color': get_risk_color(quick_scan.get('fraud_score', 50)),
-                    'red_flags': quick_scan.get('red_flags', []),
-                    'company_legitimacy': {'website_exists': False, 'linkedin_exists': False},
-                    'scam_result': {'email_flagged': False, 'phone_flagged': False},
-                    'llm_analysis': None,
-                    'detection_method': 'quick'
-                }
-                detection_method = 'quick'
-            except Exception as e:
-                logger.error(f"Quick analysis failed: {e}", exc_info=True)
-                return jsonify({'error': 'Quick analysis failed'}), 500
-
-        else:  # detailed analysis
-            logger.info("Starting DETAILED analysis (LLM)")
-            try:
-                ai_analysis = corporate_agent.analyze_job_post(job_text)
-                analysis_time = (datetime.now() - analysis_start).total_seconds()
-
-                risk_score = ai_analysis.get('risk_score', 50)
-                final_analysis = {
-                    'risk_score': risk_score,
-                    'verdict': ai_analysis.get('verdict', 'Unknown'),
-                    'risk_level': ai_analysis.get('risk_level', 'Medium'),
-                    'risk_color': get_risk_color(risk_score),
-                    'red_flags': ai_analysis.get('red_flags', []),
-                    'company_legitimacy': ai_analysis.get('company_legitimacy', {}),
-                    'scam_result': ai_analysis.get('scam_result', {}),
-                    'llm_analysis': ai_analysis.get('reasoning', ''),
-                    'detection_method': 'detailed'
-                }
-                detection_method = 'detailed'
-
-            except Exception as e:
-                logger.error(f"LLM analysis failed: {e}. Falling back to quick analysis.")
-                
-                # Fallback to quick analysis
-                try:
-                    quick_scan = job_fraud_detector.analyze_job_posting(job_text, job_url)
-                    analysis_time = (datetime.now() - analysis_start).total_seconds()
-                    
-                    final_analysis = {
-                        'risk_score': quick_scan.get('fraud_score', 50),
-                        'verdict': quick_scan.get('verdict', 'Unknown'),
-                        'risk_level': quick_scan.get('risk_level', 'Medium'),
-                        'risk_color': get_risk_color(quick_scan.get('fraud_score', 50)),
-                        'red_flags': quick_scan.get('red_flags', []) + ['⚠️ LLM unavailable - used quick scan'],
-                        'company_legitimacy': {'website_exists': False, 'linkedin_exists': False},
-                        'scam_result': {'email_flagged': False, 'phone_flagged': False},
-                        'llm_analysis': None,
-                        'detection_method': 'quick_fallback'
-                    }
-                    detection_method = 'quick_fallback'
-                except Exception as fallback_error:
-                    logger.error(f"Fallback analysis also failed: {fallback_error}")
-                    return jsonify({'error': 'Analysis system unavailable'}), 503
-
-        # Generate auto-reply
-        is_scam = final_analysis['risk_score'] >= 60
-        try:
-            auto_reply = generate_auto_reply(is_scam)
-        except Exception:
-            auto_reply = "Unable to generate auto-reply at this time."
-
-        # Save to database
-        db_result = save_analysis_to_db(
-            url=job_url,
-            job_title=job_title,
-            company_name=company_name,
+        
+        # Perform fraud analysis using the JobFraudDetector class
+        # This will automatically save to database
+        analysis_result = fraud_detector.analyze_job_posting(
             content=job_text,
-            analysis_result=final_analysis,
-            detection_method=detection_method,
-            user_id=user_id
+            url=job_url,
+            user_id=user_id,
+            save_to_db=True
         )
-
-        if not db_result.get('success'):
-            logger.warning(f"Failed to save to database: {db_result.get('error')}")
-
-        # Build response
+        
+        # Extract data from analysis_result
+        risk_score = analysis_result['fraud_score']
+        is_scam = risk_score >= 60  # Threshold for scam classification
+        
+        # Generate risk level
+        if risk_score >= 80:
+            risk_level = 'High'
+            risk_color = 'danger'
+        elif risk_score >= 40:
+            risk_level = 'Medium'
+            risk_color = 'warning'
+        else:
+            risk_level = 'Low'
+            risk_color = 'success'
+        
+        # Generate auto-reply (you'll need to implement this function)
+        auto_reply = generate_auto_reply(is_scam)
+        
+        # Prepare response matching your original format
         response_data = {
-            'risk_score': final_analysis['risk_score'],
-            'risk_level': final_analysis['risk_level'],
-            'risk_color': final_analysis['risk_color'],
-            'verdict': final_analysis['verdict'],
+            'success': True,
+            'url': job_url,
+            'job_id': analysis_result.get('job_id'),
+            'analysis_id': analysis_result.get('analysis_id'),
+            'job_title': analysis_result['job_title'],
+            'fraud_score': risk_score,
+            'verdict': analysis_result['verdict'],
+            'risk_level': analysis_result['risk_level'],
+            'risk_color': risk_color,
             'is_scam': is_scam,
             'auto_reply': auto_reply,
+            'red_flags': analysis_result['red_flags'],
+            'details': analysis_result['details'],
             'analysis': {
-                'red_flags': final_analysis['red_flags'],
-                'company_legitimacy': final_analysis['company_legitimacy'],
-                'scam_database_check': final_analysis['scam_result'],
-                'llm_analysis': final_analysis['llm_analysis'],
+                'red_flags': analysis_result['red_flags'],
+                'company_legitimacy': {
+                    'has_website': not analysis_result['red_flags'].get('no_company_website', True),
+                    'has_linkedin': not analysis_result['red_flags'].get('no_linkedin', True),
+                    'company_info_present': not analysis_result['red_flags'].get('no_company_info', True)
+                },
                 'company_info': {
-                    'name': company_name,
-                    'website': final_analysis.get('company_legitimacy', {}).get('website')
+                    'name': analysis_result.get('company_name'),
+                    'website': analysis_result['details'].get('company_website')
                 }
             },
-            'recommendations': generate_recommendations(final_analysis, final_analysis['risk_score']),
-            'analysis_type': analysis_type,
-            'detection_method': detection_method,
-            'database': db_result,
-            'performance': {
-                'analysis_time': round(analysis_time, 2),
-                'method': 'Rule-Based (Fast)' if detection_method.startswith('quick') else 'AI-Powered (Accurate)'
-            }
+            'recommendations': generate_recommendations(analysis_result, risk_score),
+            'analysis_type': analysis_type
+        }
+        
+        return jsonify(response_data), 200
+        
+    except Exception as e:
+        logger.error(f"Analysis error: {str(e)}")
+        return jsonify({
+            'success': False,
+            'error': f'Analysis failed: {str(e)}'
+        }), 500
+
+
+# Helper function for generating auto-reply (implement as needed)
+def generate_auto_reply(is_scam):
+    """Generate automated reply based on scam detection"""
+    if is_scam:
+        return {
+            'message': 'Warning: This job posting shows multiple fraud indicators. Exercise extreme caution.',
+            'action': 'Do not proceed without thorough verification.'
+        }
+    else:
+        return {
+            'message': 'This job posting appears legitimate based on our analysis.',
+            'action': 'Still verify company details independently before proceeding.'
         }
 
-        logger.info(f"✅ Analysis complete | Type: {analysis_type} | Method: {detection_method} | Score: {final_analysis['risk_score']}")
-        return jsonify(response_data), 200
 
-    except Exception as e:
-        logger.error(f"Analysis error: {e}", exc_info=True)
-        return jsonify({'error': 'Analysis failed. Please try again later.'}), 500
-
-def get_risk_color(risk_score):
-    """Determine risk color based on score"""
-    if risk_score >= 70:
-        return 'danger'
-    elif risk_score >= 40:
-        return 'warning'
-    else:
-        return 'success'
-
+# Helper function for generating recommendations
 def generate_recommendations(analysis_result, risk_score):
-    """Generate recommendations based on analysis results"""
+    """Generate recommendations based on analysis"""
     recommendations = []
     
-    if risk_score >= 70:
-        recommendations.append(" Do not proceed with this job opportunity")
-        recommendations.append("Report this posting to the job board immediately")
-    elif risk_score >= 60:
-        recommendations.append("Exercise extreme caution with this opportunity")
-        
-    if analysis_result.get('red_flags'):
-        recommendations.append("Multiple red flags detected - verify all information independently")
-        
-    company_legitimacy = analysis_result.get('company_legitimacy', {})
-    if not company_legitimacy.get('website_exists'):
-        recommendations.append("Company website could not be verified")
-        
-    if not company_legitimacy.get('linkedin_exists'):
-        recommendations.append("Company LinkedIn page not found")
-        
-    scam_result = analysis_result.get('scam_result', {})
-    if scam_result.get('email_flagged') or scam_result.get('phone_flagged'):
-        recommendations.append(" Contact information flagged in scam database")
-        
-    if risk_score < 40:
-        recommendations.append(" Job posting appears legitimate, but always verify independently")
-        recommendations.append(" Research the company thoroughly before applying")
-        recommendations.append(" Verify company details through official channels")
+    if analysis_result['red_flags'].get('no_company_website'):
+        recommendations.append('Verify the company has a legitimate website')
     
-    # Suggest detailed analysis for borderline cases
-    detection_method = analysis_result.get('detection_method', '')
-    if detection_method == 'quick' and 40 <= risk_score < 70:
-        recommendations.append("💡 Consider running a detailed analysis for more accurate results")
-        
+    if analysis_result['red_flags'].get('no_linkedin'):
+        recommendations.append('Check if the company has a LinkedIn presence')
+    
+    if analysis_result['red_flags'].get('suspicious_contact'):
+        recommendations.append('Be cautious of personal email addresses for business communication')
+    
+    if analysis_result['red_flags'].get('unrealistic_salary'):
+        recommendations.append('Verify salary claims are realistic for the position and industry')
+    
+    if analysis_result['red_flags'].get('requests_personal_details'):
+        recommendations.append('NEVER provide sensitive personal information before proper verification')
+    
+    if risk_score >= 70:
+        recommendations.append('Consider reporting this job posting to the platform')
+        recommendations.append('Do not proceed with application')
+    
     return recommendations
+
+@api_bp.route('/api/report_scam', methods=['POST'])
+def report_scam():
+    """API endpoint for reporting scam job postings"""
+    try:
+        data = request.get_json()
+        
+        email = data.get('email')
+        phone = data.get('phone')
+        additional_info = data.get('additional_info', '')
+        
+        if not email and not phone:
+            return jsonify({'error': 'Either email or phone must be provided'}), 400
+        
+        # Add to scam database
+        add_scam_to_database(email or '', phone or '')
+        
+        # Log the report
+        logger.info(f"Scam reported - Email: {email}, Phone: {phone}, Info: {additional_info}")
+        
+        return jsonify({'message': 'Thank you for reporting. The information has been added to our scam database.'}), 200
+        
+    except Exception as e:
+        logger.error(f"Report scam error: {str(e)}")
+        return jsonify({'error': 'Failed to report scam'}), 500
 
 @api_bp.route('/api/recent_alerts', methods=['GET'])
 def get_recent_alerts():
-    """API endpoint for getting recent fraud alerts from database"""
+    """API endpoint for getting recent fraud alerts"""
     try:
-        # Get limit parameter with default
-        limit = request.args.get('limit', default=10, type=int)
-        limit = min(max(1, limit), 50)  # Clamp between 1 and 50
+        # This would typically come from your database
+        # For now, returning mock data similar to your landing page
+        recent_alerts = [
+            {
+                'id': 1,
+                'title': 'Phishing Scam Alert',
+                'description': 'Impersonating a well-known bank',
+                'risk_level': 'High Risk',
+                'category': 'Email',
+                'time_ago': '2h ago'
+            },
+            {
+                'id': 2,
+                'title': 'Investment Fraud Scheme',
+                'description': 'Promising high returns on crypto',
+                'risk_level': 'Medium Risk',
+                'category': 'Social Media',
+                'time_ago': '4h ago'
+            },
+            {
+                'id': 3,
+                'title': 'Fake Online Store',
+                'description': 'Offering discounted electronics',
+                'risk_level': 'Low Risk',
+                'category': 'Website',
+                'time_ago': '6h ago'
+            }
+        ]
         
-        recent_analyses = db.session.query(
-            Job_Posting, Analysis_Results
-        ).join(
-            Analysis_Results,
-            Job_Posting.job_id == Analysis_Results.job_id
-        ).filter(
-            Analysis_Results.risk_score >= 60
-        ).order_by(
-            Job_Posting.submitted_at.desc()
-        ).limit(limit).all()
-        
-        alerts = []
-        for job, analysis in recent_analyses:
-            time_diff = datetime.utcnow() - job.submitted_at
-            hours_ago = int(time_diff.total_seconds() / 3600)
-            
-            if hours_ago < 1:
-                time_str = "Just now"
-            elif hours_ago < 24:
-                time_str = f'{hours_ago}h ago'
-            elif hours_ago < 168:  # Less than a week
-                days = int(hours_ago / 24)
-                time_str = f'{days}d ago'
-            else:
-                time_str = job.submitted_at.strftime('%Y-%m-%d')
-            
-            alerts.append({
-                'id': job.job_id,
-                'title': job.job_title,
-                'description': f'Company: {job.company_name}',
-                'risk_level': analysis.risk_level,
-                'risk_score': analysis.risk_score,
-                'category': 'Job Posting',
-                'time_ago': time_str,
-                'url': job.url if job.url != 'https://example.com/manual-entry' else None
-            })
-        
-        return jsonify({
-            'success': True,
-            'alerts': alerts,
-            'count': len(alerts)
-        }), 200
+        return jsonify(recent_alerts), 200
         
     except Exception as e:
-        logger.error(f"Recent alerts error: {str(e)}", exc_info=True)
+        logger.error(f"Recent alerts error: {str(e)}")
         return jsonify({'error': 'Failed to fetch recent alerts'}), 500
 
 @api_bp.route('/api/stats', methods=['GET'])
 def get_stats():
-    """API endpoint for getting fraud detection statistics from database"""
+    """API endpoint for getting fraud detection statistics"""
     try:
-        # Get total jobs analyzed
-        total_analyzed = Job_Posting.query.count()
-        
-        # Get scams detected (high risk)
-        scams_detected = db.session.query(Job_Posting).join(
-            Analysis_Results,
-            Job_Posting.job_id == Analysis_Results.job_id
-        ).filter(
-            Analysis_Results.risk_score >= 70
-        ).count()
-        
-        # Get users protected
-        users_protected = User.query.count()
-        
-        # Calculate accuracy rate based on community reports
-        try:
-            total_reports = Community_Reports.query.count()
-            if total_reports > 0:
-                # Simple accuracy metric (can be improved)
-                accuracy_rate = min(95.0, 85.0 + (total_reports / 100))
-            else:
-                accuracy_rate = 94.2
-        except Exception:
-            accuracy_rate = 94.2
-        
+        # This would typically come from your database
         stats = {
-            'success': True,
-            'total_analyzed': total_analyzed,
-            'scams_detected': scams_detected,
-            'accuracy_rate': round(accuracy_rate, 1),
-            'users_protected': users_protected,
-            'detection_rate': round((scams_detected / total_analyzed * 100) if total_analyzed > 0 else 0, 1)
+            'total_analyzed': 15420,
+            'scams_detected': 3890,
+            'accuracy_rate': 94.2,
+            'users_protected': 12530
         }
         
         return jsonify(stats), 200
         
     except Exception as e:
-        logger.error(f"Stats error: {str(e)}", exc_info=True)
-        return jsonify({
-            'success': False,
-            'error': 'Failed to fetch statistics',
-            'total_analyzed': 0,
-            'scams_detected': 0,
-            'accuracy_rate': 94.2,
-            'users_protected': 0
-        }), 500
-
-# from application.agent.job_recommendation import get_recommendation_engine
-
-# # Add these routes to your api_bp Blueprint
-
-# @api_bp.route('/api/recommendations/get', methods=['POST'])
-# @auth_required('token')
-# def get_job_recommendations():
-#     """
-#     Get personalized job recommendations for authenticated user
-    
-#     Request body:
-#         {
-#             "limit": 10,  # optional, default 10
-#             "include_external": true,  # optional, default true
-#             "risk_filter": "safe_only"  # optional: "safe_only", "all", "mixed"
-#         }
-#     """
-#     try:
-#         data = request.get_json() or {}
-        
-#         user_id = current_user.id
-#         limit = max(1, min(data.get('limit', 10), 50))  # Between 1 and 50
-#         include_external = data.get('include_external', True)
-#         risk_filter = data.get('risk_filter', 'safe_only')
-        
-#         # Validate risk filter
-#         if risk_filter not in ['safe_only', 'all', 'mixed']:
-#             return jsonify({
-#                 'error': 'risk_filter must be one of: safe_only, all, mixed'
-#             }), 400
-        
-#         logger.info(f"Getting recommendations for user {user_id}")
-        
-#         # Get recommendation engine
-#         engine = get_recommendation_engine()
-        
-#         # Get recommendations
-#         recommendations = engine.get_recommendations(
-#             user_id=user_id,
-#             limit=limit,
-#             include_external=include_external,
-#             risk_filter=risk_filter
-#         )
-        
-#         # Get user stats
-#         stats = engine.get_user_stats(user_id)
-        
-#         # Calculate statistics
-#         safe_count = sum(1 for r in recommendations if r.get('risk_score', 0) <= 30)
-#         risky_count = len(recommendations) - safe_count
-        
-#         response = {
-#             'success': True,
-#             'user_id': user_id,
-#             'recommendations': recommendations,
-#             'count': len(recommendations),
-#             'parameters': {
-#                 'limit': limit,
-#                 'include_external': include_external,
-#                 'risk_filter': risk_filter
-#             },
-#             'statistics': {
-#                 'safe_jobs': safe_count,
-#                 'risky_jobs': risky_count,
-#                 'total': len(recommendations)
-#             },
-#             'user_profile': stats
-#         }
-        
-#         return jsonify(response), 200
-        
-#     except Exception as e:
-#         logger.error(f"Recommendation error: {e}", exc_info=True)
-#         return jsonify({'error': 'Failed to get recommendations'}), 500
-
-
-# @api_bp.route('/api/recommendations/profile', methods=['GET'])
-# @auth_required('token')
-# def get_recommendation_profile():
-#     """Get user's recommendation profile and statistics"""
-#     try:
-#         user_id = current_user.id
-        
-#         engine = get_recommendation_engine()
-#         stats = engine.get_user_stats(user_id)
-        
-#         # Get user preferences
-#         user_prefs = engine.get_user_preferences(user_id)
-        
-#         response = {
-#             'success': True,
-#             'user_id': user_id,
-#             'profile': stats,
-#             'preferences': {
-#                 'qualifications': user_prefs['qualifications'] if user_prefs else [],
-#                 'interests': user_prefs['interests'] if user_prefs else []
-#             },
-#             'recommendations_enabled': stats['jobs_analyzed'] > 0 or (user_prefs and (user_prefs['qualifications'] or user_prefs['interests']))
-#         }
-        
-#         return jsonify(response), 200
-        
-#     except Exception as e:
-#         logger.error(f"Profile error: {e}", exc_info=True)
-#         return jsonify({'error': 'Failed to get profile'}), 500
-
-
-# @api_bp.route('/api/recommendations/history', methods=['GET'])
-# @auth_required('token')
-# def get_recommendation_history():
-#     """Get user's job browsing history for recommendations"""
-#     try:
-#         user_id = current_user.id
-#         limit = request.args.get('limit', default=50, type=int)
-#         limit = min(max(1, limit), 100)  # Between 1 and 100
-        
-#         engine = get_recommendation_engine()
-#         history = engine.get_user_browsing_history(user_id, limit=limit)
-        
-#         response = {
-#             'success': True,
-#             'user_id': user_id,
-#             'history': history,
-#             'count': len(history)
-#         }
-        
-#         return jsonify(response), 200
-        
-#     except Exception as e:
-#         logger.error(f"History error: {e}", exc_info=True)
-#         return jsonify({'error': 'Failed to get history'}), 500
-
-
-# @api_bp.route('/api/recommendations/suggest', methods=['POST'])
-# def get_public_recommendations():
-#     """
-#     Get job recommendations for non-authenticated users based on query
-    
-#     Request body:
-#         {
-#             "query": "software engineer",  # required
-#             "location": "Remote",  # optional, default "Remote"
-#             "limit": 10  # optional, default 10
-#         }
-#     """
-#     try:
-#         data = request.get_json()
-#         if not data or 'query' not in data:
-#             return jsonify({'error': 'query is required'}), 400
-        
-#         query = data['query'].strip()
-#         location = data.get('location', 'Remote')
-#         limit = max(1, min(data.get('limit', 10), 20))  # Between 1 and 20
-        
-#         if not query:
-#             return jsonify({'error': 'query cannot be empty'}), 400
-        
-#         logger.info(f"Public recommendation request: {query}")
-        
-#         engine = get_recommendation_engine()
-        
-#         # Search external jobs
-#         jobs = engine._search_external_jobs(query, location, limit=limit)
-        
-#         # Calculate basic match score (since no user profile)
-#         for job in jobs:
-#             # Simple relevance based on query match
-#             job_text = f"{job['title']} {job.get('description', '')}".lower()
-#             query_words = query.lower().split()
-#             matches = sum(1 for word in query_words if word in job_text)
-#             job['match_score'] = (matches / len(query_words)) * 100 if query_words else 0
-#             job['risk_score'] = 15  # Default safe assumption for external sources
-#             job['risk_level'] = 'Low Risk'
-        
-#         # Sort by match score
-#         jobs = sorted(jobs, key=lambda x: x['match_score'], reverse=True)
-        
-#         response = {
-#             'success': True,
-#             'query': query,
-#             'location': location,
-#             'jobs': jobs,
-#             'count': len(jobs),
-#             'note': 'Sign in for personalized recommendations based on your profile'
-#         }
-        
-#         return jsonify(response), 200
-        
-#     except Exception as e:
-#         logger.error(f"Public recommendation error: {e}", exc_info=True)
-#         return jsonify({'error': 'Failed to get recommendations'}), 500
-
-
-# @api_bp.route('/api/recommendations/refresh', methods=['POST'])
-# @auth_required('token')
-# def refresh_recommendations():
-#     """
-#     Refresh user's ML profile and get new recommendations
-#     Useful after user has analyzed multiple new jobs
-#     """
-#     try:
-#         user_id = current_user.id
-        
-#         engine = get_recommendation_engine()
-        
-#         # Rebuild ML profile
-#         ml_profile = engine.build_user_profile(user_id)
-        
-#         if not ml_profile:
-#             return jsonify({
-#                 'success': False,
-#                 'message': 'Not enough job history to build ML profile. Analyze at least 3 jobs first.'
-#             }), 400
-        
-#         # Get fresh recommendations
-#         recommendations = engine.get_recommendations(
-#             user_id=user_id,
-#             limit=15,
-#             include_external=True,
-#             risk_filter='safe_only'
-#         )
-        
-#         response = {
-#             'success': True,
-#             'message': 'Profile refreshed and recommendations updated',
-#             'user_id': user_id,
-#             'ml_profile': ml_profile,
-#             'recommendations': recommendations,
-#             'count': len(recommendations)
-#         }
-        
-#         return jsonify(response), 200
-        
-#     except Exception as e:
-#         logger.error(f"Refresh error: {e}", exc_info=True)
-#         return jsonify({'error': 'Failed to refresh recommendations'}), 500
-
-# # Error handlers
-# @api_bp.errorhandler(404)
-# def not_found(error):
-#     return jsonify({'error': 'Resource not found'}), 404
-
-@api_bp.errorhandler(405)
-def method_not_allowed(error):
-    return jsonify({'error': 'Method not allowed'}), 405
-
-@api_bp.errorhandler(500)
-def internal_error(error):
-    logger.error(f"Internal server error: {str(error)}", exc_info=True)
-    db.session.rollback()
-    return jsonify({'error': 'Internal server error'}), 500
+        logger.error(f"Stats error: {str(e)}")
+        return jsonify({'error': 'Failed to fetch statistics'}), 500
