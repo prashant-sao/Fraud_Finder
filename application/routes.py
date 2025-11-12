@@ -1,5 +1,5 @@
 from flask import Blueprint, jsonify, request, render_template
-from flask_security import auth_required, current_user, login_user
+from flask_security import auth_required, current_user, login_user,logout_user
 from werkzeug.security import generate_password_hash, check_password_hash
 from application.database import db
 import requests
@@ -95,6 +95,25 @@ def login():
     except Exception as e:
         logger.error(f"Login error: {str(e)}")
         return jsonify({'message': 'Login failed'}), 500
+
+@api_bp.route('/api/logout', methods=['POST'])
+def logout_simple():
+    """Simple logout endpoint that doesn't require authentication"""
+    try:
+        # This version works even if the token has expired or is invalid
+        logout_user()
+        
+        return jsonify({
+            'message': 'Logout successful!',
+            'success': True
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Simple logout error: {str(e)}")
+        return jsonify({
+            'message': 'Logout successful ',
+            'success': True
+        }), 200  
 
 @api_bp.route('/api/edit_profile', methods=['PUT'])
 @auth_required('token')
