@@ -312,4 +312,54 @@ class JobFraudDetector:
         }
 
 
+from flask import Flask, request, jsonify
+from flask_cors import CORS
 
+app = Flask(__name__)
+CORS(app)
+
+# Initialize detector
+detector = JobFraudDetector()
+
+@app.route('/api/analyze', methods=['POST'])
+def analyze_job():
+    """Main endpoint to analyze a job posting URL"""
+    try:
+        data = request.get_json()
+        
+        if not data or 'url' not in data:
+            return jsonify({
+                'success': False,
+                'error': 'URL is required'
+            }), 400
+        
+        url = data['url']
+        
+        # Fetch job posting
+        fetch_result = detector.fetch_job_posting(url)
+        
+        if not fetch_result['success']:
+            return jsonify({
+                'success': False,
+                'error': f"Failed to fetch job posting: {fetch_result['error']}"
+            }), 400
+        
+        # Analyze for fraud
+        analysis = detector.analyze_job_posting(fetch_result['content'], url)
+        
+        return jsonify({
+            'success': True,
+            'url': url,
+            'job_title': fetch_result['title'],
+            'fraud_score': analysis['fraud_score'],
+            'verdict': analysis['verdict'],
+            'risk_level': analysis['risk_level'],
+            'red_flags': analysis['red_flags'],
+            'details': analysis['details']
+        })
+        
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500

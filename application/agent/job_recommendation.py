@@ -14,6 +14,109 @@ import time
 import sqlite3
 from contextlib import contextmanager
 
+app = Flask(__name__)
+CORS(app)
+
+# Database configuration
+DATABASE = 'job_recommender.db'
+
+@contextmanager
+def get_db():
+    """Context manager for database connections"""
+    conn = sqlite3.connect(DATABASE)
+    conn.row_factory = sqlite3.Row
+    try:
+        yield conn
+    finally:
+        conn.close()
+
+def init_db():
+    """Initialize the database with required tables"""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        
+        # Users table (integrates with existing user database)
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT UNIQUE NOT NULL,
+                email TEXT UNIQUE NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        
+        # User job history table
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS user_job_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                job_url TEXT NOT NULL,
+                job_content TEXT,
+                job_title TEXT,
+                job_company TEXT,
+                analyzed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            )
+        ''')
+        
+        # User preferences (ML profile)
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS user_preferences (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER UNIQUE NOT NULL,
+                preferred_titles TEXT,
+                preferred_skills TEXT,
+                preferred_industries TEXT,
+                preferred_levels TEXT,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            )
+        ''')
+        
+        # Job recommendations cache
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS job_recommendations (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                job_title TEXT NOT NULL,
+                job_company TEXT,
+                job_location TEXT,
+                job_description TEXT,
+                job_url TEXT NOT NULL,
+                job_source TEXT,
+                fraud_score INTEGER,
+                risk_level TEXT,
+                is_safe BOOLEAN,
+                relevance_score REAL,
+                ml_score REAL,
+                final_score REAL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            )
+        ''')
+        
+        # Analyzed jobs table
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS analyzed_jobs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                job_url TEXT NOT NULL,
+                job_title TEXT,
+                job_company TEXT,
+                job_description TEXT,
+                fraud_score INTEGER,
+                risk_level TEXT,
+                verdict TEXT,
+                red_flags TEXT,
+                is_safe BOOLEAN,
+                analyzed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+                UNIQUE(user_id, job_url)
+            )
+        ''')
+        
+        conn.commit()
+        print("✅ Database initialized successfully")
 
 # Import fraud detection logic
 class JobFraudDetector:
@@ -1146,5 +1249,5 @@ def home():
     })
 
 
-if _name_ == '_main_':
+if __name__ == '_main_':
     app.run(debug=True, host='0.0.0.0', port=5002)
