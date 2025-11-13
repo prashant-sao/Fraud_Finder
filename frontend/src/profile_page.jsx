@@ -3,12 +3,19 @@ import React, { useState } from "react";
 const ProfilePage = ({ userName, onBack }) => {
     const [selected, setSelected] = useState("history");
 
-    const handleLogout = () => {
+    // Accept onLogout from parent (main_screen)
+    const handleLogout = async () => {
+        try {
+            await fetch("/api/logout", { method: "POST", credentials: "include" });
+        } catch (err) {
+            // Optionally handle error, but still clear state
+        }
         localStorage.removeItem("user");
         localStorage.removeItem("token");
         localStorage.clear();
         sessionStorage.clear();
-        if (typeof onBack === "function") onBack();
+        if (typeof onLogout === "function") onLogout();
+        else if (typeof onBack === "function") onBack();
     };
 
 
