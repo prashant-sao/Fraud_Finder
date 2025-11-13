@@ -188,7 +188,7 @@ const MainScreen = () => {
                                             />
                                             Quick
                                         </label>
-                                        <label style={{ fontFamily: 'JomolhariReg', fontSize: "1rem", display: "flex", alignItems: "center", cursor: userName ? "pointer" : "not-allowed", opacity: userName ? 1 : 0.5 }}>
+                                        {/* <label style={{ fontFamily: 'JomolhariReg', fontSize: "1rem", display: "flex", alignItems: "center", cursor: userName ? "pointer" : "not-allowed", opacity: userName ? 1 : 0.5 }}>
                                             <input
                                                 type="radio"
                                                 name="analysisType"
@@ -199,7 +199,7 @@ const MainScreen = () => {
                                                 disabled={!userName}
                                             />
                                             Detailed
-                                        </label>
+                                        </label> */}
                                     </div>
                                 </div>
                             </div>
@@ -246,7 +246,7 @@ const MainScreen = () => {
                                     textAlign: "left",
                                     border: "1px solid #e57373"
                                 }}>
-                                    <span style={{ fontWeight: 600 }}>Failed to analyze:</span> {result.error}
+                                    <span style={{ fontWeight: 600 }}>Failed to analyze -</span> {result.error}
                                 </div>
                             ) : result && typeof result === 'object' ? (
                                 <div style={{
@@ -261,15 +261,15 @@ const MainScreen = () => {
                                 }}>
                                     <div style={{ marginBottom: '1rem' }}>
                                         <span style={{ fontWeight: 700, fontSize: '1.3rem', color: result.risk_color || '#333' }}>
-                                            Risk Score - {result.risk_score} ({result.risk_level})
+                                            Risk Score -{result.fraud_score} ({result.risk_level})
                                         </span>
                                         <div style={{
                                             marginTop: '0.7rem',
                                             marginBottom: '0.5rem',
                                             width: '100%',
-                                            maxWidth: 400,
+                                            maxWidth: 900,
                                             height: 22,
-                                            background: 'linear-gradient(90deg, #e53935 0%, #fbc02d 50%, #43a047 100%)',
+                                            background: 'linear-gradient(90deg, #43a047 0%, #fbc02d 50%, #e53935 100%)',
                                             borderRadius: 12,
                                             position: 'relative',
                                             boxShadow: '0 2px 8px rgba(44,62,80,0.07)'
@@ -279,16 +279,15 @@ const MainScreen = () => {
                                                 left: 0,
                                                 top: 0,
                                                 height: '100%',
-                                                width: `${Math.max(0, Math.min(100, result.risk_score))}%`,
+                                                width: `${Math.max(0, Math.min(100, result.fraud_score))}%`,
                                                 borderRadius: 12,
                                                 background: 'rgba(255,255,255,0.15)',
-                                                border: '2px solid #fff',
                                                 boxSizing: 'border-box',
                                                 transition: 'width 0.5s cubic-bezier(.4,2,.6,1)'
                                             }} />
                                             <div style={{
                                                 position: 'absolute',
-                                                left: `${Math.max(0, Math.min(100, result.risk_score))}%`,
+                                                left: `${Math.max(0, Math.min(100, result.fraud_score))}%`,
                                                 top: 0,
                                                 transform: 'translateX(-50%)',
                                                 color: '#222',
@@ -300,20 +299,22 @@ const MainScreen = () => {
                                                 borderRadius: 8,
                                                 boxShadow: '0 1px 4px rgba(44,62,80,0.08)'
                                             }}>
-                                                {result.risk_score}
+                                                {result.fraud_score}
                                             </div>
                                         </div>
                                     </div>
+
                                     <div style={{ marginBottom: '1rem' }}>
                                         <span style={{ fontWeight: 600 }}>Verdict -</span> {result.verdict}
                                     </div>
                                     <div style={{ marginBottom: '1rem' }}>
                                         <span style={{ fontWeight: 600 }}>Is Scam -</span> {result.is_scam ? 'Yes' : 'No'}
                                     </div>
+
                                     {result.analysis && (
                                         <>
                                             <div style={{ marginBottom: '1rem' }}>
-                                                <span style={{ fontWeight: 600 }}>Red Flags:</span>
+                                                <span style={{ fontWeight: 600 }}>Red Flags -</span>
                                                 <div style={{
                                                     display: 'grid',
                                                     gridTemplateColumns: '1fr 1fr',
@@ -324,15 +325,15 @@ const MainScreen = () => {
                                                 }}>
                                                     {(() => {
                                                         const flags = Array.isArray(result.analysis.red_flags) ? result.analysis.red_flags.slice(0, 8) : [];
-                                                        while (flags.length < 8) flags.push('No flag');
+                                                        while (flags.length <= 8) flags.push('No flag');
                                                         return flags.map((flag, idx) => (
                                                             <div key={idx} style={{
-                                                                background: '#fff',
-                                                                border: '2px solid #e57373',
-                                                                borderRadius: 12,
+                                                                background: '#c0c0c0',
+                                                                border: '2px solid #c0c0c0',
+                                                                borderRadius: 25,
                                                                 width: 100,
                                                                 height: 100,
-                                                                minWidth: 100,
+                                                                minWidth: 200,
                                                                 minHeight: 100,
                                                                 maxWidth: 100,
                                                                 maxHeight: 100,
@@ -340,8 +341,8 @@ const MainScreen = () => {
                                                                 alignItems: 'center',
                                                                 justifyContent: 'center',
                                                                 fontWeight: 500,
-                                                                fontSize: 13,
-                                                                color: '#b71c1c',
+                                                                fontSize: 15,
+                                                                color: '#000000',
                                                                 boxShadow: '0 2px 8px rgba(44,62,80,0.07)',
                                                                 padding: 0,
                                                                 textAlign: 'center',
@@ -360,11 +361,11 @@ const MainScreen = () => {
                                             </div>
                                         </>
                                     )}
-                                    {result.auto_reply && (
+                                    {/* {result.auto_reply && (
                                         <div style={{ marginTop: '1.5rem', background: '#e0f7fa', borderRadius: '10px', padding: '1rem' }}>
                                             <span style={{ fontWeight: 600 }}>Auto Reply Suggestion -</span>
                                         </div>
-                                    )}
+                                    )} */}
                                 </div>
                             ) : result && (
                                 <div style={{
