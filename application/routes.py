@@ -13,6 +13,7 @@ from application.agent.auto_reply import generate_auto_reply
 from application.agent.scam_checker import add_scam_to_database
 
 from application.agent.risk_score import JobFraudDetector
+from application.agent.job_recommendation import ml_recommender
 
 
 fraud_detector = JobFraudDetector()
@@ -334,6 +335,138 @@ def generate_recommendations(analysis_result, risk_score):
         recommendations.append('Do not proceed with application')
     
     return recommendations
+
+@api_bp.route('/api/ml_recommend', methods=['POST'])
+def ml_recommend():
+    """
+    ML-powered personalized job recommendations
+    
+    Request body:
+    {
+        "user_id": 123,
+        "limit": 10,  // optional, default 10
+        "risk_filter": "mixed"  // optional: "mixed", "safe_only", "risky_only", "all"
+    }
+    """
+    try:
+        data = request.get_json()
+        
+        if not data:
+            return jsonify({'error': 'No data provided'}), 400
+        
+        user_id = data.get('user_id')
+        
+        if not user_id:
+            return jsonify({'error': 'user_id is required'}), 400
+        
+        # Get optional parameters
+        limit = data.get('limit', 10)
+        risk_filter = data.get('risk_filter', 'mixed')
+        
+        # Validate limit
+        if not isinstance(limit, int) or limit < 1 or limit > 50:
+            return jsonify({'error': 'limit must be between 1 and 50'}), 400
+        
+        # Validate risk_filter
+        valid_filters = ['mixed', 'safe_only', 'risky_only', 'all']
+        if risk_filter not in valid_filters:
+            return jsonify({'error': f'risk_filter must be one of: {", ".join(valid_filters)}'}), 400
+        
+        logger.info(f"Getting ML recommendations for user {user_id}, limit={limit}, filter={risk_filter}")
+        
+        # Get personalized recommendations
+        recommendations = ml_recommender.get_personalized_recommendations(
+            user_id=user_id,
+            limit=limit,
+            risk_filter=risk_filter
+        )
+        
+        # Get user stats
+        user_stats = ml_recommender.get_user_stats(user_id)
+        
+        response_data = {
+            'success': True,
+            'user_id': user_id,
+            'total_recommendations': len(recommendations),
+            'risk_filter': risk_filter,
+            'user_stats': user_stats,
+            'recommendations': recommendations
+        }
+        
+        return jsonify(response_data), 200
+        
+    except Exception as e:
+        logger.error(f"ML recommendation error: {str(e)}")
+        return jsonify({
+            'success': False,
+            'error': f'ML recommendation failed: {str(e)}'
+        }), 500
+
+
+@api_bp.route('/api/ml_recommend/profile', methods=['GET'])
+def get_ml_profile():
+    """
+    Get user's ML profile and preferences
+    
+    Query params:
+    - user_id: required
+    """
+    try:
+        user_id = request.args.get('user_id', type=int)
+        
+        if not user_id:
+            return jsonify({'error': 'user_id is required'}), 400
+        
+        user_stats = ml_recommender.get_user_stats(user_id)
+        
+        return jsonify({
+            'success': True,
+            'user_id': user_id,
+            'stats': user_stats
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"ML profile error: {str(e)}")
+        return jsonify({
+            'success': False,
+            'error': f'Failed to get ML profile: {str(e)}'
+        }), 500
+
+
+@api_bp.route('/api/ml_recommend/history', methods=['GET'])
+def get_ml_history():
+    """
+    Get user's job browsing history
+    
+    Query params:
+    - user_id: required
+    - limit: optional (default 20)
+    """
+    try:
+        user_id = request.args.get('user_id', type=int)
+        limit = request.args.get('limit', 20, type=int)
+        
+        if not user_id:
+            return jsonify({'error': 'user_id is required'}), 400
+        
+        history = ml_recommender.get_user_history(user_id)
+        
+        # Limit results
+        history = history[:limit]
+        
+        return jsonify({
+            'success': True,
+            'user_id': user_id,
+            'total_history': len(history),
+            'history': history
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"ML history error: {str(e)}")
+        return jsonify({
+            'success': False,
+            'error': f'Failed to get ML history: {str(e)}'
+        }), 500
 
 @api_bp.route('/api/report_scam', methods=['POST'])
 def report_scam():
