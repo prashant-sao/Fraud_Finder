@@ -324,33 +324,68 @@ const MainScreen = () => {
                                                     minHeight: 120
                                                 }}>
                                                     {(() => {
-                                                        const flags = Array.isArray(result.analysis.red_flags) ? result.analysis.red_flags.slice(0, 8) : [];
-                                                        while (flags.length <= 8) flags.push('No flag');
-                                                        return flags.map((flag, idx) => (
-                                                            <div key={idx} style={{
-                                                                background: '#c0c0c0',
-                                                                border: '2px solid #c0c0c0',
-                                                                borderRadius: 25,
-                                                                width: 100,
-                                                                height: 100,
-                                                                minWidth: 200,
-                                                                minHeight: 100,
-                                                                maxWidth: 100,
-                                                                maxHeight: 100,
-                                                                display: 'flex',
-                                                                alignItems: 'center',
-                                                                justifyContent: 'center',
-                                                                fontWeight: 500,
-                                                                fontSize: 15,
-                                                                color: '#000000',
-                                                                boxShadow: '0 2px 8px rgba(44,62,80,0.07)',
-                                                                padding: 0,
-                                                                textAlign: 'center',
-                                                                transition: 'background 0.3s',
-                                                                overflow: 'hidden',
-                                                                wordBreak: 'break-word'
-                                                            }}>
-                                                                {flag}
+                                                        const flagMessages = {
+                                                            'vague_description': 'Vague Job Description',
+                                                            'unrealistic_salary': 'Unrealistic Salary/Benefits',
+                                                            'no_company_info': 'No Company Information',
+                                                            'requests_personal_details': 'Request for Personal Details',
+                                                            'poor_grammar': 'Poor Grammar/Spelling',
+                                                            'suspicious_contact': 'Suspicious Contact Methods',
+                                                            'no_linkedin': 'No LinkedIn Presence',
+                                                            'no_company_website': 'No Company Website'
+                                                        };
+
+                                                        const flagImages = {
+                                                            vague_description: "/src/assets/vague_jd.png",
+                                                            unrealistic_salary: "/src/assets/unreal_salary.png",
+                                                            no_company_info: "/src/assets/no_comp_info.png",
+                                                            requests_personal_details: "/src/assets/personal_info.png",
+                                                            poor_grammar: "/src/assets/poor_grammar.png",
+                                                            suspicious_contact: "/src/assets/sus_contact.png",
+                                                            no_linkedin: "/src/assets/no_linkedin.png",
+                                                            no_company_website: "/src/assets/no_website.png"
+                                                        };
+
+                                                        const flags = result.analysis.red_flags;
+
+                                                        const activeFlags = Object.entries(flags)
+                                                            .filter(([key, value]) => value === true)
+                                                            .map(([key]) => [key, flagMessages[key]]);
+
+
+                                                        return activeFlags.map(([key, label], idx) => (
+                                                            <div
+                                                                key={idx}
+                                                                style={{
+                                                                    background: '#c0c0c0',
+                                                                    border: '2px solid #c0c0c0',
+                                                                    borderRadius: 20,
+                                                                    width: 150,
+                                                                    height: 150,
+                                                                    display: 'flex',
+                                                                    flexDirection: 'column',
+                                                                    alignItems: 'center',
+                                                                    justifyContent: 'center',
+                                                                    fontWeight: 500,
+                                                                    fontSize: 15,
+                                                                    color: '#000000',
+                                                                    boxShadow: '0 2px 8px rgba(44,62,80,0.07)',
+                                                                    padding: 10,
+                                                                    textAlign: 'center',
+                                                                    transition: 'transform 0.2s',
+                                                                }}
+                                                            >
+                                                                <img
+                                                                    src={flagImages[key]}
+                                                                    alt={label}
+                                                                    style={{
+                                                                        width: 60,
+                                                                        height: 60,
+                                                                        objectFit: "contain",
+                                                                        marginBottom: 8
+                                                                    }}
+                                                                />
+                                                                <div>{label}</div>
                                                             </div>
                                                         ));
                                                     })()}
