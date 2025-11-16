@@ -359,17 +359,17 @@ const MainScreen = () => {
                                                                 style={{
                                                                     background: '#c0c0c0',
                                                                     border: '2px solid #c0c0c0',
-                                                                    borderRadius: 20,
-                                                                    width: 150,
-                                                                    height: 150,
+                                                                    borderRadius: 25,
+                                                                    width: 295,
+                                                                    height: 120,
                                                                     display: 'flex',
                                                                     flexDirection: 'column',
                                                                     alignItems: 'center',
                                                                     justifyContent: 'center',
                                                                     fontWeight: 500,
-                                                                    fontSize: 15,
+                                                                    fontSize: 18,
                                                                     color: '#000000',
-                                                                    boxShadow: '0 2px 8px rgba(44,62,80,0.07)',
+                                                                    boxShadow: '0 2px 8px rgba(44,62,80,0.2)',
                                                                     padding: 10,
                                                                     textAlign: 'center',
                                                                     transition: 'transform 0.2s',
@@ -379,8 +379,8 @@ const MainScreen = () => {
                                                                     src={flagImages[key]}
                                                                     alt={label}
                                                                     style={{
-                                                                        width: 60,
-                                                                        height: 60,
+                                                                        width: 50,
+                                                                        height: 50,
                                                                         objectFit: "contain",
                                                                         marginBottom: 8
                                                                     }}
