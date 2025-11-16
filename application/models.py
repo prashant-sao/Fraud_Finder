@@ -186,7 +186,7 @@ class Search_Analytics(db.Model):
         return f'<Search_Analytics {self.search_id}>'
 
 
-#class User_Job_Alerts(db.Model):
+class User_Job_Alerts(db.Model):
     """Store personalized job alerts for each user"""
     __tablename__ = 'user_job_alerts'
     
