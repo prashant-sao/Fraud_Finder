@@ -336,216 +336,231 @@ def generate_recommendations(analysis_result, risk_score):
     
     return recommendations
 
+
+
+
+# Replace your existing /api/ml_recommend route with this:
+
 @api_bp.route('/api/ml_recommend', methods=['POST'])
 def ml_recommend():
     """
-    ML-powered personalized job recommendations
+    Get personalized job recommendations with fraud analysis (Latest Alerts format)
     
     Request body:
     {
+        "user_id": 123,                         // REQUIRED for personalization
+        "limit": 10,                            // Optional - default 10, max 50
+        "search_query": "python developer"      // Optional - overrides user preferences
+    }
+    
+    Response (Latest Alerts format):
+    {
+        "success": true,
         "user_id": 123,
-        "limit": 10,  // optional, default 10
-        "risk_filter": "mixed"  // optional: "mixed", "safe_only", "risky_only", "all"
+        "total_recommendations": 10,
+        "safe_jobs_count": 6,
+        "risky_jobs_count": 4,
+        "search_query": null,
+        "recommendations": [
+            {
+                "id": 1,
+                "title": "Phishing Scam Alert",
+                "subtitle": "Senior Developer at TechCorp",
+                "description": "This job posting contains suspicious elements...",
+                "risk_level": "High Risk",
+                "risk_category": "Email",
+                "fraud_score": 75,
+                "time_ago": "2h ago",
+                "job_url": "https://...",
+                "is_read": false,
+                "created_at": "2024-01-15T10:30:00"
+            },
+            ...
+        ]
     }
     """
     try:
-        data = request.get_json()
+        data = request.get_json() or {}
         
-        if not data:
-            return jsonify({'error': 'No data provided'}), 400
-        
+        # Get parameters
         user_id = data.get('user_id')
-        
-        if not user_id:
-            return jsonify({'error': 'user_id is required'}), 400
-        
-        # Get optional parameters
         limit = data.get('limit', 10)
-        risk_filter = data.get('risk_filter', 'mixed')
+        search_query = data.get('search_query')
+        
+        # user_id is REQUIRED for personalized recommendations
+        if not user_id:
+            return jsonify({
+                'error': 'user_id is required for personalized recommendations'
+            }), 400
         
         # Validate limit
         if not isinstance(limit, int) or limit < 1 or limit > 50:
             return jsonify({'error': 'limit must be between 1 and 50'}), 400
         
-        # Validate risk_filter
-        valid_filters = ['mixed', 'safe_only', 'risky_only', 'all']
-        if risk_filter not in valid_filters:
-            return jsonify({'error': f'risk_filter must be one of: {", ".join(valid_filters)}'}), 400
+        logger.info(f"Getting personalized recommendations for user {user_id}: limit={limit}, query={search_query}")
         
-        logger.info(f"Getting ML recommendations for user {user_id}, limit={limit}, filter={risk_filter}")
-        
-        # Get personalized recommendations
-        recommendations = ml_recommender.get_personalized_recommendations(
-            user_id=user_id,
+        # Get personalized recommendations (unique for this user)
+        recommendations = ml_recommender.get_recommendations(
             limit=limit,
-            risk_filter=risk_filter
+            search_query=search_query,
+            user_id=user_id
         )
         
-        # Get user stats
-        user_stats = ml_recommender.get_user_stats(user_id)
+        # Calculate statistics
+        safe_count = sum(1 for rec in recommendations if rec.get('fraud_score', 0) < 30)
+        risky_count = len(recommendations) - safe_count
         
         response_data = {
             'success': True,
             'user_id': user_id,
             'total_recommendations': len(recommendations),
-            'risk_filter': risk_filter,
-            'user_stats': user_stats,
+            'safe_jobs_count': safe_count,
+            'risky_jobs_count': risky_count,
+            'search_query': search_query,
             'recommendations': recommendations
         }
         
         return jsonify(response_data), 200
         
+    except ValueError as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 404
+        
     except Exception as e:
-        logger.error(f"ML recommendation error: {str(e)}")
+        logger.error(f"ML recommendation error: {str(e)}", exc_info=True)
         return jsonify({
             'success': False,
             'error': f'ML recommendation failed: {str(e)}'
         }), 500
 
 
-@api_bp.route('/api/ml_recommend/profile', methods=['GET'])
-def get_ml_profile():
-    """
-    Get user's ML profile and preferences
-    
-    Query params:
-    - user_id: required
-    """
-    try:
-        user_id = request.args.get('user_id', type=int)
-        
-        if not user_id:
-            return jsonify({'error': 'user_id is required'}), 400
-        
-        user_stats = ml_recommender.get_user_stats(user_id)
-        
-        return jsonify({
-            'success': True,
-            'user_id': user_id,
-            'stats': user_stats
-        }), 200
-        
-    except Exception as e:
-        logger.error(f"ML profile error: {str(e)}")
-        return jsonify({
-            'success': False,
-            'error': f'Failed to get ML profile: {str(e)}'
-        }), 500
-
+# Add these additional routes for managing alerts:
 
 @api_bp.route('/api/ml_recommend/history', methods=['GET'])
-def get_ml_history():
+def get_alert_history():
     """
-    Get user's job browsing history
+    Get user's alert history
     
     Query params:
     - user_id: required
     - limit: optional (default 20)
+    - include_dismissed: optional (default false)
     """
     try:
+        from application.models import User_Job_Alerts
+        
         user_id = request.args.get('user_id', type=int)
         limit = request.args.get('limit', 20, type=int)
+        include_dismissed = request.args.get('include_dismissed', 'false').lower() == 'true'
         
         if not user_id:
             return jsonify({'error': 'user_id is required'}), 400
         
-        history = ml_recommender.get_user_history(user_id)
+        query = User_Job_Alerts.query.filter_by(user_id=user_id)
         
-        # Limit results
-        history = history[:limit]
+        if not include_dismissed:
+            query = query.filter_by(is_dismissed=False)
+        
+        alerts = query.order_by(User_Job_Alerts.created_at.desc()).limit(limit).all()
         
         return jsonify({
             'success': True,
             'user_id': user_id,
-            'total_history': len(history),
-            'history': history
+            'total_alerts': len(alerts),
+            'alerts': [alert.to_dict() for alert in alerts]
         }), 200
         
     except Exception as e:
-        logger.error(f"ML history error: {str(e)}")
+        logger.error(f"Get history error: {str(e)}", exc_info=True)
         return jsonify({
             'success': False,
-            'error': f'Failed to get ML history: {str(e)}'
+            'error': str(e)
         }), 500
 
-@api_bp.route('/api/report_scam', methods=['POST'])
-def report_scam():
-    """API endpoint for reporting scam job postings"""
+
+@api_bp.route('/api/ml_recommend/mark_read', methods=['POST'])
+def mark_alert_read():
+    """
+    Mark an alert as read
+    
+    Request body:
+    {
+        "alert_id": 123,
+        "user_id": 456
+    }
+    """
     try:
+        from application.models import User_Job_Alerts
+        
         data = request.get_json()
+        alert_id = data.get('alert_id')
+        user_id = data.get('user_id')
         
-        email = data.get('email')
-        phone = data.get('phone')
-        additional_info = data.get('additional_info', '')
+        if not alert_id or not user_id:
+            return jsonify({'error': 'alert_id and user_id are required'}), 400
         
-        if not email and not phone:
-            return jsonify({'error': 'Either email or phone must be provided'}), 400
+        alert = User_Job_Alerts.query.filter_by(id=alert_id, user_id=user_id).first()
         
-        # Add to scam database
-        add_scam_to_database(email or '', phone or '')
+        if not alert:
+            return jsonify({'error': 'Alert not found'}), 404
         
-        # Log the report
-        logger.info(f"Scam reported - Email: {email}, Phone: {phone}, Info: {additional_info}")
+        alert.is_read = True
+        db.session.commit()
         
-        return jsonify({'message': 'Thank you for reporting. The information has been added to our scam database.'}), 200
+        return jsonify({
+            'success': True,
+            'message': 'Alert marked as read'
+        }), 200
         
     except Exception as e:
-        logger.error(f"Report scam error: {str(e)}")
-        return jsonify({'error': 'Failed to report scam'}), 500
+        db.session.rollback()
+        logger.error(f"Mark read error: {str(e)}", exc_info=True)
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
 
-@api_bp.route('/api/recent_alerts', methods=['GET'])
-def get_recent_alerts():
-    """API endpoint for getting recent fraud alerts"""
-    try:
-        # This would typically come from your database
-        # For now, returning mock data similar to your landing page
-        recent_alerts = [
-            {
-                'id': 1,
-                'title': 'Phishing Scam Alert',
-                'description': 'Impersonating a well-known bank',
-                'risk_level': 'High Risk',
-                'category': 'Email',
-                'time_ago': '2h ago'
-            },
-            {
-                'id': 2,
-                'title': 'Investment Fraud Scheme',
-                'description': 'Promising high returns on crypto',
-                'risk_level': 'Medium Risk',
-                'category': 'Social Media',
-                'time_ago': '4h ago'
-            },
-            {
-                'id': 3,
-                'title': 'Fake Online Store',
-                'description': 'Offering discounted electronics',
-                'risk_level': 'Low Risk',
-                'category': 'Website',
-                'time_ago': '6h ago'
-            }
-        ]
-        
-        return jsonify(recent_alerts), 200
-        
-    except Exception as e:
-        logger.error(f"Recent alerts error: {str(e)}")
-        return jsonify({'error': 'Failed to fetch recent alerts'}), 500
 
-@api_bp.route('/api/stats', methods=['GET'])
-def get_stats():
-    """API endpoint for getting fraud detection statistics"""
+@api_bp.route('/api/ml_recommend/dismiss', methods=['POST'])
+def dismiss_alert():
+    """
+    Dismiss an alert
+    
+    Request body:
+    {
+        "alert_id": 123,
+        "user_id": 456
+    }
+    """
     try:
-        # This would typically come from your database
-        stats = {
-            'total_analyzed': 15420,
-            'scams_detected': 3890,
-            'accuracy_rate': 94.2,
-            'users_protected': 12530
-        }
+        from application.models import User_Job_Alerts
         
-        return jsonify(stats), 200
+        data = request.get_json()
+        alert_id = data.get('alert_id')
+        user_id = data.get('user_id')
+        
+        if not alert_id or not user_id:
+            return jsonify({'error': 'alert_id and user_id are required'}), 400
+        
+        alert = User_Job_Alerts.query.filter_by(id=alert_id, user_id=user_id).first()
+        
+        if not alert:
+            return jsonify({'error': 'Alert not found'}), 404
+        
+        alert.is_dismissed = True
+        db.session.commit()
+        
+        return jsonify({
+            'success': True,
+            'message': 'Alert dismissed'
+        }), 200
         
     except Exception as e:
-        logger.error(f"Stats error: {str(e)}")
-        return jsonify({'error': 'Failed to fetch statistics'}), 500
+        db.session.rollback()
+        logger.error(f"Dismiss error: {str(e)}", exc_info=True)
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
