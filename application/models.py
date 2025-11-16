@@ -186,16 +186,61 @@ class Search_Analytics(db.Model):
         return f'<Search_Analytics {self.search_id}>'
 
 
-# New model for user alerts/notifications
-class User_Alerts(db.Model):
-    __tablename__ = 'user_alerts'
-    alert_id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey('User.id', ondelete='CASCADE'), nullable=False)
-    alert_type = db.Column(db.String(50), nullable=False)  # new_fraud, trending, report_update
-    message = db.Column(db.Text, nullable=False)
+#class User_Job_Alerts(db.Model):
+    """Store personalized job alerts for each user"""
+    __tablename__ = 'user_job_alerts'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('User.id', ondelete='CASCADE'), nullable=False, index=True)
+    alert_title = db.Column(db.String(200), nullable=False)
+    alert_subtitle = db.Column(db.String(300), nullable=True)
+    alert_description = db.Column(db.Text, nullable=False)
+    risk_level = db.Column(db.String(50), nullable=False)
+    risk_category = db.Column(db.String(100), nullable=False)
+    fraud_score = db.Column(db.Integer, default=0)
+    job_title = db.Column(db.String(200), nullable=True)
+    job_company = db.Column(db.String(200), nullable=True)
+    job_url = db.Column(db.String(500), nullable=False)
+    job_source = db.Column(db.String(50), nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
-    read = db.Column(db.Boolean, default=False)
-    related_job_id = db.Column(db.Integer, db.ForeignKey('Job_Posting.job_id', ondelete='CASCADE'), nullable=True)
+    is_read = db.Column(db.Boolean, default=False)
+    is_dismissed = db.Column(db.Boolean, default=False)
+    
+    user = db.relationship('User', backref=db.backref('job_alerts', lazy='dynamic'))
+    
+    def to_dict(self):
+        from datetime import timedelta
+        time_diff = datetime.utcnow() - self.created_at
+        if time_diff < timedelta(minutes=60):
+            time_ago = f"{int(time_diff.total_seconds() / 60)}m ago"
+        elif time_diff < timedelta(hours=24):
+            time_ago = f"{int(time_diff.total_seconds() / 3600)}h ago"
+        else:
+            time_ago = f"{int(time_diff.total_seconds() / 86400)}d ago"
+        
+        return {
+            'id': self.id,
+            'title': self.alert_title,
+            'subtitle': self.alert_subtitle,
+            'description': self.alert_description,
+            'risk_level': self.risk_level,
+            'risk_category': self.risk_category,
+            'fraud_score': self.fraud_score,
+            'time_ago': time_ago,
+            'job_url': self.job_url,
+            'is_read': self.is_read,
+            'created_at': self.created_at.isoformat()
+        }
 
-    def __repr__(self):
-        return f'<User_Alerts {self.alert_id}: {self.alert_type}>'
+
+class User_Alert_Preferences(db.Model):
+    """Track user's job viewing history"""
+    __tablename__ = 'user_alert_preferences'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('User.id', ondelete='CASCADE'), nullable=False, unique=True)
+    viewed_job_ids = db.Column(db.Text, nullable=True)
+    preferred_categories = db.Column(db.Text, nullable=True)
+    last_updated = db.Column(db.DateTime, default=datetime.utcnow)
+    
+    user = db.relationship('User', backref=db.backref('alert_preferences', uselist=False))

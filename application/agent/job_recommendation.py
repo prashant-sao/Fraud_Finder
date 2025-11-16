@@ -1,657 +1,427 @@
-from flask import Flask, request, jsonify
-from flask_cors import CORS
+import logging
 import requests
 from bs4 import BeautifulSoup
 import re
-from urllib.parse import quote_plus, urljoin, urlparse
-import numpy as np
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.metrics.pairwise import cosine_similarity
-from collections import Counter
+from urllib.parse import quote_plus, urljoin
+from datetime import datetime, timedelta
+import hashlib
 import json
-from datetime import datetime
-import time
-import sqlite3
-from contextlib import contextmanager
 
-# Database configuration - using existing database
-DATABASE = 'fraud_detection.db'
+logger = logging.getLogger(__name__)
+logger.addHandler(logging.NullHandler())
 
-@contextmanager
-def get_db():
-    """Context manager for database connections"""
-    conn = sqlite3.connect(DATABASE)
-    conn.row_factory = sqlite3.Row
-    try:
-        yield conn
-    finally:
-        conn.close()
+# Import local fraud detector if available; fallback to None
+try:
+    from application.agent.risk_score import JobFraudDetector
+    fraud_detector = JobFraudDetector()
+except Exception:
+    fraud_detector = None
+    logger.warning("fraud_detector not available; fraud analysis will be skipped.")
 
-def init_ml_tables():
-    """Initialize ML-specific tables in the existing database"""
-    with get_db() as conn:
-        cursor = conn.cursor()
-        
-        # User job history table
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS user_job_history (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id INTEGER NOT NULL,
-                job_url TEXT NOT NULL,
-                job_content TEXT,
-                job_title TEXT,
-                job_company TEXT,
-                analyzed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (user_id) REFERENCES user(id) ON DELETE CASCADE
-            )
-        ''')
-        
-        # User preferences (ML profile)
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS user_preferences (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id INTEGER UNIQUE NOT NULL,
-                preferred_titles TEXT,
-                preferred_skills TEXT,
-                preferred_industries TEXT,
-                preferred_levels TEXT,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (user_id) REFERENCES user(id) ON DELETE CASCADE
-            )
-        ''')
-        
-        # Job recommendations cache
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS job_recommendations (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id INTEGER NOT NULL,
-                job_title TEXT NOT NULL,
-                job_company TEXT,
-                job_location TEXT,
-                job_description TEXT,
-                job_url TEXT NOT NULL,
-                job_source TEXT,
-                fraud_score INTEGER,
-                risk_level TEXT,
-                is_safe BOOLEAN,
-                relevance_score REAL,
-                ml_score REAL,
-                final_score REAL,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (user_id) REFERENCES user(id) ON DELETE CASCADE
-            )
-        ''')
-        
-        conn.commit()
-        print("✅ ML tables initialized successfully in fraud_detection.db")
+# Import database and models
+try:
+    from application.database import db
+    from application.models import User
+except Exception:
+    db = None
+    User = None
+    logger.warning("Database models not available; personalization will be limited.")
 
-# Import fraud detection logic
-class JobFraudDetector:
-    def __init__(self):
-        self.salary_red_flags = [
-            'guaranteed income', 'unlimited earning', 'earn thousands weekly',
-            'work from home earn', 'no experience high pay', 'quick money'
-        ]
-        
-        self.description_red_flags = [
-            'act now', 'limited time', 'urgent', 'immediate start',
-            'no experience necessary', 'easy money', 'risk free',
-            'investment required', 'pay to apply', 'processing fee',
-            'training fee', 'starter kit'
-        ]
-
-    def quick_analyze(self, job_title, job_company, job_description, job_url):
-        """Quick fraud analysis for recommended jobs"""
-        content = f"{job_title} {job_company} {job_description}".lower()
-        fraud_score = 0
-        red_flags = []
-        risk_level = "Low Risk"
-
-        # Check 1: Vague description (15 points)
-        if len(job_description.split()) < 30:
-            fraud_score += 15
-            red_flags.append('vague_description')
-
-        # Check 2: Unrealistic salary promises (20 points)
-        for flag in self.salary_red_flags:
-            if flag in content:
-                fraud_score += 20
-                red_flags.append('unrealistic_salary')
-                break
-
-        # Check 3: Suspicious keywords (20 points)
-        suspicious_count = sum(1 for flag in self.description_red_flags if flag in content)
-        if suspicious_count >= 2:
-            fraud_score += 20
-            red_flags.append('suspicious_keywords')
-
-        # Check 4: Company verification (15 points)
-        if not job_company or job_company == 'N/A' or len(job_company) < 3:
-            fraud_score += 15
-            red_flags.append('no_company_info')
-
-        # Check 5: Personal email domains (15 points)
-        if re.search(r'@(gmail|yahoo|hotmail|outlook)\.com', content):
-            fraud_score += 15
-            red_flags.append('personal_email')
-
-        # Check 6: URL verification (15 points)
-        domain = urlparse(job_url).netloc
-        trusted_domains = ['indeed.com', 'linkedin.com', 'glassdoor.com', 'remoteok.com', 'weworkremotely.com']
-        if not any(trusted in domain for trusted in trusted_domains):
-            fraud_score += 10
-            red_flags.append('unverified_source')
-
-        # Determine risk level
-        if fraud_score >= 60:
-            risk_level = "High Risk"
-            verdict = "Potentially Fraudulent"
-        elif fraud_score >= 30:
-            risk_level = "Medium Risk"
-            verdict = "Proceed with Caution"
-        else:
-            risk_level = "Low Risk"
-            verdict = "Appears Legitimate"
-
-        return {
-            'fraud_score': min(fraud_score, 100),
-            'risk_level': risk_level,
-            'verdict': verdict,
-            'red_flags': red_flags,
-            'is_safe': fraud_score < 30
-        }
-
-fraud_detector = JobFraudDetector()
 
 class MLJobRecommender:
+    """Personalized job recommender with fraud analysis and alert formatting."""
+
     def __init__(self):
-        self.vectorizer = TfidfVectorizer(
-            max_features=500,
-            stop_words='english',
-            ngram_range=(1, 2)
-        )
-        # Initialize tables on instantiation
-        init_ml_tables()
-        
-    def get_user_history(self, user_id):
-        """Get user's job browsing history from database"""
-        with get_db() as conn:
-            cursor = conn.cursor()
-            cursor.execute('''
-                SELECT job_url, job_content, job_title, job_company, analyzed_at
-                FROM user_job_history
-                WHERE user_id = ?
-                ORDER BY analyzed_at DESC
-                LIMIT 50
-            ''', (user_id,))
-            
-            rows = cursor.fetchall()
-            return [dict(row) for row in rows]
-    
-    def add_to_history(self, user_id, url, content, title="", company=""):
-        """Add analyzed job to user history in database"""
-        with get_db() as conn:
-            cursor = conn.cursor()
-            
-            # Extract keywords
-            keywords = self._extract_keywords(content)
-            
-            # Insert into history
-            cursor.execute('''
-                INSERT INTO user_job_history (user_id, job_url, job_content, job_title, job_company)
-                VALUES (?, ?, ?, ?, ?)
-            ''', (user_id, url, content, title, company))
-            
-            conn.commit()
-            
-            # Update user profile
-            self._build_user_profile(user_id)
-            
-            return keywords
-    
-    def _extract_keywords(self, content):
-        """Extract important keywords from content"""
-        content_lower = content.lower()
-        
-        # Job titles
-        titles = ['engineer', 'developer', 'analyst', 'manager', 'designer',
-                 'scientist', 'consultant', 'intern', 'coordinator', 'specialist']
-        
-        # Skills
-        skills = ['python', 'java', 'javascript', 'react', 'sql', 'aws', 'docker',
-                 'machine learning', 'data analysis', 'project management', 'agile',
-                 'marketing', 'sales', 'excel', 'powerpoint', 'communication']
-        
-        # Industries
-        industries = ['tech', 'finance', 'healthcare', 'retail', 'consulting',
-                     'education', 'manufacturing', 'entertainment']
-        
-        # Levels
-        levels = ['senior', 'junior', 'entry', 'mid', 'lead', 'principal']
-        
-        found_keywords = {
-            'titles': [t for t in titles if t in content_lower],
-            'skills': [s for s in skills if s in content_lower],
-            'industries': [i for i in industries if i in content_lower],
-            'levels': [l for l in levels if l in content_lower]
+        self.alert_templates = {
+            'phishing': {
+                'title': 'Phishing Scam Alert',
+                'category': 'Email',
+                'description': 'This job posting contains suspicious elements commonly found in phishing scams. Be cautious of requests for personal information or account details.'
+            },
+            'investment_fraud': {
+                'title': 'Investment Fraud Scheme',
+                'category': 'Social Media',
+                'description': 'Fraudsters are promoting fake job opportunities that require upfront investment. Be wary of positions guaranteeing unrealistic returns.'
+            },
+            'fake_company': {
+                'title': 'Fake Company Alert',
+                'category': 'Website',
+                'description': 'This job posting may be from a fraudulent company with no legitimate business presence. Verify company details before applying.'
+            },
+            'payment_scam': {
+                'title': 'Payment Processing Scam',
+                'category': 'Email',
+                'description': 'This position involves suspicious payment processing activities that may be part of a money laundering scheme.'
+            },
+            'data_harvesting': {
+                'title': 'Data Harvesting Alert',
+                'category': 'Website',
+                'description': 'This job posting may be collecting personal information for fraudulent purposes. Avoid sharing sensitive details.'
+            },
+            'low_risk': {
+                'title': 'Verified Job Opportunity',
+                'category': 'Website',
+                'description': 'This job posting appears legitimate based on our analysis. However, always verify company details independently.'
+            }
         }
+
+    def get_recommendations(self, limit=10, search_query=None, user_id=None):
+        """
+        Get personalized job recommendations with fraud analysis.
         
-        return found_keywords
+        Args:
+            limit (int): Number of jobs to return
+            search_query (str|None): Optional search terms
+            user_id (int|None): User ID for personalization
+        
+        Returns:
+            list[dict]: List of job recommendations with fraud analysis
+        """
+        # If user_id provided, get personalized recommendations
+        if user_id and User and db:
+            return self._get_personalized_recommendations(user_id, limit)
+        
+        # Otherwise, return generic recommendations
+        return self._get_generic_recommendations(limit, search_query)
     
-    def _build_user_profile(self, user_id):
-        """Build user profile based on history using ML"""
-        history = self.get_user_history(user_id)
-        
-        if not history:
-            return
-        
-        # Aggregate all keywords from history
-        all_titles = []
-        all_skills = []
-        all_industries = []
-        all_levels = []
-        
-        for entry in history:
-            keywords = self._extract_keywords(entry['job_content'] or '')
-            all_titles.extend(keywords['titles'])
-            all_skills.extend(keywords['skills'])
-            all_industries.extend(keywords['industries'])
-            all_levels.extend(keywords['levels'])
-        
-        # Count frequencies (weighted by recency)
-        weights = np.linspace(0.5, 1.0, len(history))
-        
-        title_counter = Counter()
-        skill_counter = Counter()
-        industry_counter = Counter()
-        level_counter = Counter()
-        
-        for i, entry in enumerate(history):
-            keywords = self._extract_keywords(entry['job_content'] or '')
-            for title in keywords['titles']:
-                title_counter[title] += weights[i]
-            for skill in keywords['skills']:
-                skill_counter[skill] += weights[i]
-            for industry in keywords['industries']:
-                industry_counter[industry] += weights[i]
-            for level in keywords['levels']:
-                level_counter[level] += weights[i]
-        
-        # Build profile
-        profile = {
-            'preferred_titles': [t for t, c in title_counter.most_common(5)],
-            'preferred_skills': [s for s, c in skill_counter.most_common(10)],
-            'preferred_industries': [i for i, c in industry_counter.most_common(3)],
-            'preferred_levels': [l for l, c in level_counter.most_common(2)],
-            'history_count': len(history)
-        }
-        
-        # Save to database
-        with get_db() as conn:
-            cursor = conn.cursor()
-            cursor.execute('''
-                INSERT OR REPLACE INTO user_preferences 
-                (user_id, preferred_titles, preferred_skills, preferred_industries, preferred_levels, updated_at)
-                VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-            ''', (
-                user_id,
-                json.dumps(profile['preferred_titles']),
-                json.dumps(profile['preferred_skills']),
-                json.dumps(profile['preferred_industries']),
-                json.dumps(profile['preferred_levels'])
-            ))
-            conn.commit()
-        
-        return profile
-    
-    def get_user_profile(self, user_id):
-        """Get user profile from database"""
-        with get_db() as conn:
-            cursor = conn.cursor()
-            cursor.execute('''
-                SELECT preferred_titles, preferred_skills, preferred_industries, preferred_levels
-                FROM user_preferences
-                WHERE user_id = ?
-            ''', (user_id,))
+    def _get_personalized_recommendations(self, user_id, limit=10):
+        """Get personalized recommendations based on user profile"""
+        try:
+            # Import models here to avoid circular imports
+            from application.models import User_Job_Alerts, User_Alert_Preferences
             
-            row = cursor.fetchone()
+            # Get user
+            user = User.query.get(user_id)
+            if not user:
+                logger.error(f"User {user_id} not found")
+                return []
             
-            if row:
-                return {
-                    'preferred_titles': json.loads(row['preferred_titles']),
-                    'preferred_skills': json.loads(row['preferred_skills']),
-                    'preferred_industries': json.loads(row['preferred_industries']),
-                    'preferred_levels': json.loads(row['preferred_levels']),
-                    'history_count': len(self.get_user_history(user_id))
-                }
+            # Get or create user preferences
+            preferences = User_Alert_Preferences.query.filter_by(user_id=user_id).first()
+            if not preferences:
+                preferences = User_Alert_Preferences(
+                    user_id=user_id,
+                    viewed_job_ids=json.dumps([])
+                )
+                db.session.add(preferences)
+                db.session.commit()
             
-            return None
-    
-    def get_personalized_recommendations(self, user_id, limit=10, risk_filter='mixed'):
-        """Get personalized recommendations for a specific user"""
-        # Get extra jobs to ensure we have enough after filtering
-        fetch_limit = limit * 3
-        
-        user_profile = self.get_user_profile(user_id)
-        
-        if not user_profile:
-            recommendations = self._get_default_recommendations(fetch_limit)
-        else:
+            # Get viewed job IDs
+            viewed_jobs = json.loads(preferences.viewed_job_ids) if preferences.viewed_job_ids else []
+            
+            # Get search terms based on user profile
+            search_terms = self._get_user_search_terms(user)
+            
+            # Fetch jobs
             all_jobs = []
-            profile = user_profile
-            
-            # Search based on user preferences
-            for title in profile['preferred_titles'][:3]:
-                # Search Indeed
-                indeed_jobs = self._search_indeed(title, 'Remote', limit=5)
-                all_jobs.extend(indeed_jobs)
+            for query in search_terms[:3]:
+                try:
+                    indeed_jobs = self._search_indeed(query, "Remote", limit=5)
+                    all_jobs.extend(indeed_jobs)
+                except Exception as e:
+                    logger.error(f"Indeed search failed for '{query}': {e}")
                 
-                # Search Remote OK
-                remote_jobs = self._search_remote_ok(title, limit=3)
-                all_jobs.extend(remote_jobs)
+                try:
+                    remote_jobs = self._search_remote_ok(query, limit=3)
+                    all_jobs.extend(remote_jobs)
+                except Exception as e:
+                    logger.error(f"RemoteOK search failed for '{query}': {e}")
+                
+                if len(all_jobs) >= limit * 3:
+                    break
             
-            # Search based on skills
-            for skill in profile['preferred_skills'][:2]:
-                indeed_jobs = self._search_indeed(skill, 'Remote', limit=3)
-                all_jobs.extend(indeed_jobs)
-            
-            # Remove duplicates
-            seen_urls = set()
+            # Remove duplicates and already viewed jobs
+            seen_urls = set(viewed_jobs)
             unique_jobs = []
             for job in all_jobs:
-                if job['url'] not in seen_urls:
-                    seen_urls.add(job['url'])
+                job_hash = self._hash_job(job['url'], job['title'])
+                if job_hash not in seen_urls:
+                    seen_urls.add(job_hash)
                     unique_jobs.append(job)
             
-            # Score using ML-based similarity
-            recommendations = self._ml_score_jobs(unique_jobs, user_profile)
+            # Add fraud analysis and create alerts
+            alerts = []
+            for job in unique_jobs:
+                alert_data = self._analyze_and_create_alert(job)
+                alerts.append(alert_data)
             
-            # Ensure we have enough jobs
-            if len(recommendations) < fetch_limit:
-                additional = self._get_additional_jobs(fetch_limit - len(recommendations))
-                recommendations.extend(additional)
-        
-        # Add fraud analysis to each recommendation
-        print(f"\n🔍 Analyzing {len(recommendations)} jobs for fraud (User ID: {user_id})...")
-        for i, job in enumerate(recommendations):
-            fraud_analysis = fraud_detector.quick_analyze(
-                job['title'],
-                job['company'],
-                job.get('description', ''),
-                job['url']
-            )
+            # Get mixed recommendations (60% safe, 40% risky)
+            mixed_alerts = self._get_mixed_recommendations(alerts, limit)
             
-            job['fraud_analysis'] = fraud_analysis
-            job['fraud_score'] = fraud_analysis['fraud_score']
-            job['risk_level'] = fraud_analysis['risk_level']
-            job['is_safe'] = fraud_analysis['is_safe']
-            
-            if 'final_score' not in job:
-                job['final_score'] = job.get('relevance_score', 0)
-        
-        # Save recommendations to database
-        self._save_recommendations(user_id, recommendations[:limit])
-        
-        # Apply risk filtering
-        filtered_recommendations = self._apply_risk_filter(recommendations, risk_filter, limit)
-        
-        return filtered_recommendations
-    
-    def _apply_risk_filter(self, recommendations, risk_filter, limit):
-        """Apply risk filtering to recommendations"""
-        if risk_filter == 'safe_only':
-            filtered_jobs = [j for j in recommendations if j.get('is_safe', False)]
-            print(f"🛡️ Filtered to {len(filtered_jobs)} safe jobs only")
-            return sorted(filtered_jobs, key=lambda x: x.get('final_score', 0), reverse=True)[:limit]
-        
-        elif risk_filter == 'risky_only':
-            filtered_jobs = [j for j in recommendations if not j.get('is_safe', False)]
-            print(f"⚠️ Filtered to {len(filtered_jobs)} risky jobs only")
-            return sorted(filtered_jobs, key=lambda x: x.get('final_score', 0), reverse=True)[:limit]
-        
-        elif risk_filter == 'all':
-            print(f"📊 Showing all {len(recommendations)} jobs (no risk filtering)")
-            return sorted(recommendations, key=lambda x: x.get('final_score', 0), reverse=True)[:limit]
-        
-        else:  # 'mixed' - default: 60% safe, 40% risky
-            safe_jobs = [j for j in recommendations if j.get('is_safe', False)]
-            risky_jobs = [j for j in recommendations if not j.get('is_safe', False)]
-            
-            safe_jobs = sorted(safe_jobs, key=lambda x: x.get('final_score', 0), reverse=True)
-            risky_jobs = sorted(risky_jobs, key=lambda x: x.get('final_score', 0), reverse=True)
-            
-            safe_count = int(limit * 0.6)
-            risky_count = limit - safe_count
-            
-            print(f"🔀 Mixed mode: {safe_count} safe + {risky_count} risky jobs")
-            
-            mixed_recommendations = safe_jobs[:safe_count] + risky_jobs[:risky_count]
-            
-            if len(mixed_recommendations) < limit:
-                remaining = limit - len(mixed_recommendations)
-                if len(safe_jobs) > safe_count:
-                    mixed_recommendations.extend(safe_jobs[safe_count:safe_count + remaining])
-                elif len(risky_jobs) > risky_count:
-                    mixed_recommendations.extend(risky_jobs[risky_count:risky_count + remaining])
-            
-            return mixed_recommendations[:limit]
-    
-    def _save_recommendations(self, user_id, recommendations):
-        """Save recommendations to database"""
-        with get_db() as conn:
-            cursor = conn.cursor()
-            
-            # Clear old recommendations for this user (keep last 100)
-            cursor.execute('''
-                DELETE FROM job_recommendations 
-                WHERE user_id = ? AND id NOT IN (
-                    SELECT id FROM job_recommendations 
-                    WHERE user_id = ? 
-                    ORDER BY created_at DESC 
-                    LIMIT 100
+            # Save alerts to database
+            saved_alerts = []
+            for alert_data in mixed_alerts:
+                alert = User_Job_Alerts(
+                    user_id=user_id,
+                    alert_title=alert_data['title'],
+                    alert_subtitle=alert_data['subtitle'],
+                    alert_description=alert_data['description'],
+                    risk_level=alert_data['risk_level'],
+                    risk_category=alert_data['risk_category'],
+                    fraud_score=alert_data['fraud_score'],
+                    job_title=alert_data['job_title'],
+                    job_company=alert_data['job_company'],
+                    job_url=alert_data['job_url'],
+                    job_source=alert_data.get('source', 'Unknown')
                 )
-            ''', (user_id, user_id))
+                db.session.add(alert)
+                saved_alerts.append(alert)
             
-            # Insert new recommendations
-            for job in recommendations:
-                cursor.execute('''
-                    INSERT INTO job_recommendations 
-                    (user_id, job_title, job_company, job_location, job_description, job_url, 
-                     job_source, fraud_score, risk_level, is_safe, relevance_score, ml_score, final_score)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ''', (
-                    user_id,
-                    job['title'],
-                    job['company'],
-                    job.get('location', ''),
-                    job.get('description', ''),
-                    job['url'],
-                    job.get('source', ''),
-                    job.get('fraud_score', 0),
-                    job.get('risk_level', ''),
-                    job.get('is_safe', False),
-                    job.get('relevance_score', 0),
-                    job.get('ml_score', 0),
-                    job.get('final_score', 0)
-                ))
+            db.session.commit()
             
-            conn.commit()
-    
-    def _ml_score_jobs(self, jobs, user_profile):
-        """Score jobs using TF-IDF and cosine similarity"""
-        if not user_profile or not jobs:
-            return sorted(jobs, key=lambda x: x.get('relevance_score', 0), reverse=True)
-        
-        # Create user preference text
-        user_text = ' '.join(
-            user_profile['preferred_titles'] * 3 +
-            user_profile['preferred_skills'] * 2 +
-            user_profile['preferred_industries']
-        )
-        
-        # Create job texts
-        job_texts = []
-        for job in jobs:
-            job_text = f"{job['title']} {job['company']} {job.get('description', '')}"
-            job_texts.append(job_text)
-        
-        # Calculate TF-IDF similarity
-        try:
-            all_texts = [user_text] + job_texts
-            tfidf_matrix = self.vectorizer.fit_transform(all_texts)
+            # Update viewed jobs
+            new_viewed = viewed_jobs + [self._hash_job(a['job_url'], a['job_title']) for a in mixed_alerts]
+            preferences.viewed_job_ids = json.dumps(new_viewed[-200:])  # Keep last 200
+            preferences.last_updated = datetime.utcnow()
+            db.session.commit()
             
-            user_vector = tfidf_matrix[0:1]
-            job_vectors = tfidf_matrix[1:]
-            similarities = cosine_similarity(user_vector, job_vectors)[0]
-            
-            for i, job in enumerate(jobs):
-                ml_score = similarities[i] * 100
-                base_score = job.get('relevance_score', 0)
-                job['ml_score'] = float(ml_score)
-                job['final_score'] = base_score + ml_score
-            
-            return sorted(jobs, key=lambda x: x['final_score'], reverse=True)
+            # Return formatted alerts
+            return [alert.to_dict() for alert in saved_alerts]
             
         except Exception as e:
-            print(f"ML scoring error: {e}")
-            return jobs
+            logger.error(f"Personalized recommendations error: {e}")
+            if db:
+                db.session.rollback()
+            return self._get_generic_recommendations(limit, None)
     
-    def _get_default_recommendations(self, limit=10):
-        """Get default recommendations when no history exists"""
-        jobs = []
+    def _get_generic_recommendations(self, limit=10, search_query=None):
+        """Get generic recommendations (fallback when no user_id)"""
+        # Determine search terms
+        if search_query:
+            search_terms = [search_query]
+        else:
+            search_terms = [
+                "software engineer", "data analyst", "product manager",
+                "designer", "marketing", "developer"
+            ]
         
-        default_queries = ['software engineer', 'data analyst', 'product manager', 
-                          'designer', 'marketing']
-        
-        for query in default_queries:
-            indeed_jobs = self._search_indeed(query, 'Remote', limit=2)
-            jobs.extend(indeed_jobs)
+        # Fetch jobs
+        all_jobs = []
+        for query in search_terms[:3]:
+            try:
+                indeed_jobs = self._search_indeed(query, "Remote", limit=5)
+                all_jobs.extend(indeed_jobs)
+            except Exception as e:
+                logger.error(f"Indeed search failed: {e}")
             
-            if len(jobs) >= limit:
+            try:
+                remote_jobs = self._search_remote_ok(query, limit=3)
+                all_jobs.extend(remote_jobs)
+            except Exception as e:
+                logger.error(f"RemoteOK search failed: {e}")
+            
+            if len(all_jobs) >= limit * 2:
                 break
         
-        return jobs[:limit]
+        # Remove duplicates
+        seen_urls = set()
+        unique_jobs = []
+        for job in all_jobs:
+            if job['url'] not in seen_urls:
+                seen_urls.add(job['url'])
+                unique_jobs.append(job)
+        
+        # Add fraud analysis
+        if fraud_detector:
+            for job in unique_jobs:
+                try:
+                    fraud_analysis = fraud_detector.quick_analyze(
+                        job.get("title", ""),
+                        job.get("company", ""),
+                        job.get("description", ""),
+                        job.get("url", "")
+                    )
+                    job["fraud_analysis"] = fraud_analysis
+                    job["fraud_score"] = fraud_analysis.get("fraud_score", 0)
+                    job["risk_level"] = fraud_analysis.get("risk_level", "Unknown")
+                    job["is_safe"] = fraud_analysis.get("is_safe", True)
+                    job["verdict"] = fraud_analysis.get("verdict", "Unknown")
+                    job["red_flags"] = fraud_analysis.get("red_flags", [])
+                except Exception as e:
+                    logger.error(f"Fraud analysis failed: {e}")
+                    job["fraud_score"] = 0
+                    job["is_safe"] = True
+        
+        # Return mixed recommendations
+        return self._get_mixed_recommendations(unique_jobs, limit)
     
-    def _get_additional_jobs(self, count):
-        """Get additional jobs to meet minimum requirement"""
-        jobs = []
+    def _get_user_search_terms(self, user):
+        """Generate search terms based on user profile"""
+        search_terms = []
         
-        fallback_queries = ['remote jobs', 'entry level', 'junior developer']
+        # Use user's fields of interest
+        if user.fields_of_interest:
+            interests = [i.strip() for i in user.fields_of_interest.split(',')]
+            search_terms.extend(interests[:3])
         
-        for query in fallback_queries:
-            indeed_jobs = self._search_indeed(query, 'Remote', limit=count)
-            jobs.extend(indeed_jobs)
-            
-            if len(jobs) >= count:
-                break
+        # Use user's qualifications
+        if user.qualifications:
+            search_terms.append(user.qualifications)
         
-        return jobs[:count]
+        # Default if no user data
+        if not search_terms:
+            search_terms = ['software engineer', 'data analyst', 'developer']
+        
+        return search_terms
     
-    def _search_indeed(self, query, location, limit=5):
-        """Search Indeed for jobs"""
-        jobs = []
+    def _analyze_and_create_alert(self, job):
+        """Analyze job and create alert-style result"""
+        if not fraud_detector:
+            return self._create_simple_alert(job)
         
         try:
-            headers = {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            fraud_analysis = fraud_detector.quick_analyze(
+                job.get("title", ""),
+                job.get("company", ""),
+                job.get("description", ""),
+                job.get("url", "")
+            )
+            
+            fraud_score = fraud_analysis.get("fraud_score", 0)
+            is_safe = fraud_analysis.get("is_safe", True)
+            
+            # Determine alert type
+            if fraud_score >= 60:
+                if 'email' in str(fraud_analysis.get('red_flags', [])).lower():
+                    alert_type = 'phishing'
+                elif 'salary' in str(fraud_analysis.get('red_flags', [])).lower():
+                    alert_type = 'investment_fraud'
+                else:
+                    alert_type = 'fake_company'
+            elif fraud_score >= 30:
+                alert_type = 'payment_scam'
+            else:
+                alert_type = 'low_risk'
+            
+            template = self.alert_templates.get(alert_type, self.alert_templates['fake_company'])
+            
+            return {
+                'title': template['title'],
+                'subtitle': f"{job.get('title', 'Unknown')} at {job.get('company', 'Unknown')}",
+                'description': template['description'],
+                'risk_level': fraud_analysis.get('risk_level', 'Unknown'),
+                'risk_category': template['category'],
+                'fraud_score': fraud_score,
+                'is_safe': is_safe,
+                'job_title': job.get('title', ''),
+                'job_company': job.get('company', ''),
+                'job_url': job.get('url', ''),
+                'source': job.get('source', 'Unknown')
             }
-            
+        except Exception as e:
+            logger.error(f"Alert creation failed: {e}")
+            return self._create_simple_alert(job)
+    
+    def _create_simple_alert(self, job):
+        """Create simple alert without fraud analysis"""
+        template = self.alert_templates['low_risk']
+        return {
+            'title': template['title'],
+            'subtitle': f"{job.get('title', 'Unknown')} at {job.get('company', 'Unknown')}",
+            'description': template['description'],
+            'risk_level': 'Low Risk',
+            'risk_category': template['category'],
+            'fraud_score': 0,
+            'is_safe': True,
+            'job_title': job.get('title', ''),
+            'job_company': job.get('company', ''),
+            'job_url': job.get('url', ''),
+            'source': job.get('source', 'Unknown')
+        }
+    
+    def _hash_job(self, url, title):
+        """Create unique hash for job tracking"""
+        content = f"{url}{title}"
+        return hashlib.md5(content.encode()).hexdigest()
+    
+    def _get_mixed_recommendations(self, jobs, limit):
+        """Return mixed recommendations: 60% safe, 40% risky"""
+        safe_jobs = [j for j in jobs if j.get("is_safe", False)]
+        risky_jobs = [j for j in jobs if not j.get("is_safe", False)]
+        
+        safe_count = int(limit * 0.6)
+        risky_count = limit - safe_count
+        
+        logger.info(f"Mixed recommendations: {safe_count} safe + {risky_count} risky jobs")
+        
+        mixed = safe_jobs[:safe_count] + risky_jobs[:risky_count]
+        
+        # Fill remaining slots
+        if len(mixed) < limit:
+            remaining = limit - len(mixed)
+            if len(safe_jobs) > safe_count:
+                mixed.extend(safe_jobs[safe_count:safe_count + remaining])
+            elif len(risky_jobs) > risky_count:
+                mixed.extend(risky_jobs[risky_count:risky_count + remaining])
+        
+        return mixed[:limit]
+    
+    def _search_indeed(self, query, location, limit=5):
+        """Scrape basic job info from Indeed"""
+        jobs = []
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+        try:
             url = f"https://www.indeed.com/jobs?q={quote_plus(query)}&l={quote_plus(location)}"
-            
-            response = requests.get(url, headers=headers, timeout=10)
-            soup = BeautifulSoup(response.content, 'html.parser')
-            
-            job_cards = soup.find_all('div', class_=re.compile('job_seen_beacon|jobsearch-SerpJobCard'))
-            
+            resp = requests.get(url, headers=headers, timeout=10)
+            resp.raise_for_status()
+            soup = BeautifulSoup(resp.content, "html.parser")
+            job_cards = soup.find_all("div", class_=re.compile("job_seen_beacon|jobsearch-SerpJobCard"))
             for card in job_cards[:limit]:
                 try:
-                    title_elem = card.find('h2', class_='jobTitle')
-                    company_elem = card.find('span', class_='companyName')
-                    location_elem = card.find('div', class_='companyLocation')
-                    snippet_elem = card.find('div', class_='job-snippet')
-                    
+                    title_elem = card.find("h2", class_="jobTitle")
+                    company_elem = card.find("span", class_="companyName")
+                    location_elem = card.find("div", class_="companyLocation")
+                    snippet_elem = card.find("div", class_="job-snippet")
                     if title_elem and company_elem:
                         title = title_elem.get_text(strip=True)
                         company = company_elem.get_text(strip=True)
                         loc = location_elem.get_text(strip=True) if location_elem else location
-                        description = snippet_elem.get_text(strip=True) if snippet_elem else ''
-                        
-                        link_elem = card.find('a', class_='jcs-JobTitle')
-                        job_url = urljoin('https://www.indeed.com', link_elem['href']) if link_elem else url
-                        
+                        description = snippet_elem.get_text(strip=True) if snippet_elem else ""
+                        link_elem = card.find("a", class_="jcs-JobTitle")
+                        job_url = urljoin("https://www.indeed.com", link_elem["href"]) if link_elem and link_elem.get("href") else url
                         jobs.append({
-                            'title': title,
-                            'company': company,
-                            'location': loc,
-                            'description': description,
-                            'source': 'Indeed',
-                            'url': job_url,
-                            'posted': 'Recently',
-                            'type': 'Full-time',
-                            'relevance_score': 10
+                            "title": title,
+                            "company": company,
+                            "location": loc,
+                            "description": description,
+                            "source": "Indeed",
+                            "url": job_url,
+                            "posted": "Recently",
+                            "type": "Full-time"
                         })
-                except Exception as e:
+                except Exception:
                     continue
-                    
         except Exception as e:
-            print(f"Indeed search error: {e}")
-        
+            logger.error(f"Indeed search error: {e}")
         return jobs
     
     def _search_remote_ok(self, query, limit=3):
-        """Search Remote OK for remote jobs"""
+        """Use RemoteOK public API"""
         jobs = []
-        
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
         try:
-            headers = {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-            }
-            
             url = "https://remoteok.com/api"
-            
-            response = requests.get(url, headers=headers, timeout=10)
-            
-            if response.status_code == 200:
-                data = response.json()
-                
-                query_lower = query.lower()
-                filtered_jobs = [job for job in data[1:] if query_lower in job.get('position', '').lower()]
-                
-                for job in filtered_jobs[:limit]:
-                    jobs.append({
-                        'title': job.get('position', 'N/A'),
-                        'company': job.get('company', 'N/A'),
-                        'location': 'Remote',
-                        'description': job.get('description', '')[:200],
-                        'source': 'Remote OK',
-                        'url': job.get('url', 'https://remoteok.com'),
-                        'posted': job.get('date', 'Recently'),
-                        'type': 'Remote',
-                        'tags': job.get('tags', [])[:3],
-                        'relevance_score': 10
-                    })
-                    
+            resp = requests.get(url, headers=headers, timeout=10)
+            resp.raise_for_status()
+            data = resp.json()
+            query_lower = query.lower()
+            filtered = [job for job in data[1:] if query_lower in job.get("position", "").lower()]
+            for job in filtered[:limit]:
+                jobs.append({
+                    "title": job.get("position", "N/A"),
+                    "company": job.get("company", "N/A"),
+                    "location": "Remote",
+                    "description": (job.get("description", "") or "")[:200],
+                    "source": "Remote OK",
+                    "url": job.get("url", "https://remoteok.com"),
+                    "posted": job.get("date", "Recently"),
+                    "type": "Remote",
+                    "tags": job.get("tags", [])[:3]
+                })
         except Exception as e:
-            print(f"Remote OK search error: {e}")
-        
+            logger.error(f"Remote OK search error: {e}")
         return jobs
-    
-    def get_user_stats(self, user_id):
-        """Get user browsing statistics"""
-        profile = self.get_user_profile(user_id)
-        history = self.get_user_history(user_id)
-        
-        if not profile:
-            return {
-                'history_count': 0,
-                'message': 'No browsing history yet. Start analyzing jobs to get personalized recommendations!'
-            }
-        
-        return {
-            'history_count': len(history),
-            'profile': profile,
-            'recent_searches': [entry['job_url'] for entry in history[:5]]
-        }
+
 
 # Global instance
 ml_recommender = MLJobRecommender()
