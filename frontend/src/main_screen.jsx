@@ -491,18 +491,22 @@ const MainScreen = () => {
                         {/* LOADING */}
                         {loadingRecommendation && (
                             <div style={{
-                                background: "#fff3e0",
-                                borderRadius: "25px",
-                                padding: "2rem 1.5rem",
-                                marginTop:"10px",
+                                background: "#e0f7fa",
+                                borderRadius: "20px",
+                                padding: "1.8rem 1.2rem",
+                                marginTop: "12px",
                                 width: "90%",
-                                color: "#fb8c00",
+                                color: "#00796b",
                                 fontFamily: 'JomolhariReg',
                                 textAlign: "center",
-                                boxShadow: "0 4px 12px rgba(44,62,80,0.2)",
-                                border: "1px solid #ffe0b2"
+                                boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
+                                border: "1px solid #b2ebf2",
+                                fontSize: "1.1rem"
                             }}>
-                                Fetching recommendation...
+                                Fetching job recommendations...
+                                <div style={{ marginTop: "10px", fontSize: "0.9rem", opacity: 0.8 }}>
+                                    Please wait while we analyze safe & risky jobs
+                                </div>
                             </div>
                         )}
 
@@ -511,14 +515,19 @@ const MainScreen = () => {
                             <div style={{
                                 marginTop: "1rem",
                                 background: "#ffebee",
-                                borderRadius: "15px",
-                                padding: "1.2rem 1.5rem",
+                                borderRadius: "20px",
+                                padding: "1.4rem 1.5rem",
                                 width: "90%",
-                                color: "#b71c1c",
+                                color: "#c62828",
                                 fontFamily: 'JomolhariReg',
-                                border: "1px solid #ef9a9a"
+                                border: "1px solid #ffcdd2",
+                                boxShadow: "0 4px 12px rgba(0,0,0,0.12)",
+                                fontSize: "1.05rem"
                             }}>
-                                <strong>Error - </strong> {recommendation.error}
+                                <strong style={{ fontWeight: 700 }}>❌ Error:</strong> {recommendation.error}
+                                <div style={{ marginTop: "8px", fontSize: "0.95rem", opacity: 0.8 }}>
+                                    Please try again or check your internet connection.
+                                </div>
                             </div>
                         )}
 
@@ -526,61 +535,86 @@ const MainScreen = () => {
                         {recommendation && !recommendation.error && (
                             <div style={{
                                 marginTop: "1rem",
-                                // background: "#e3f2fd",
                                 borderRadius: "25px",
                                 padding: "1rem 1rem",
                                 width: "90%",
                                 boxShadow: "0 10px 10px rgba(44,62,80,0.2)",
                                 fontFamily: 'JomolhariReg',
-                                border: "1px solid #32BCAE"
+                                border: "1px solid #32BCAE",
+                                background: "#f0fffd"
                             }}>
-                                {/* TITLE */}
+
+                                {/* SUMMARY */}
                                 <h3 style={{
-                                    fontFamily: 'JomolhariReg',
                                     margin: 0,
-                                    fontSize: "1.4rem",
-                                    marginBottom: "0.4rem"
+                                    fontSize: "1.45rem",
+                                    marginBottom: "0.6rem"
                                 }}>
-                                    <strong>Title - </strong>{recommendation.title}
+                                    Recommended Jobs Summary
                                 </h3>
-                                {/* DESCRIPTION */}
-                                <div style={{ marginBottom: "1rem", fontSize: "1rem" }}>
-                                    <strong>Description - </strong>{recommendation.description}
+
+                                <div style={{ fontSize: "1.05rem", marginBottom: "1rem", lineHeight: "1.5" }}>
+                                    <div><strong>Total Recommendations:</strong> {recommendation.total_recommendations}</div>
+                                    <div><strong>Safe Jobs:</strong> {recommendation.safe_jobs_count}</div>
+                                    <div><strong>Risky Jobs:</strong> {recommendation.risky_jobs_count}</div>
                                 </div>
-                                {/* RISK LEVEL & FRAUD SCORE */}
-                                <div style={{ marginBottom: "0.8rem", fontSize: "1rem" }}>
-                                    <strong>Risk Level - </strong> {recommendation.risk_level}
-                                </div>
-                                <div style={{ marginBottom: "0.8rem", fontSize: "1rem" }}>
-                                    <strong>Fraud Score - </strong> {recommendation.fraud_score}
-                                </div>
-                                {recommendation.job_title && (
-                                    <div style={{ marginBottom: "0.8rem", fontSize: "1rem" }}>
-                                        <strong>Job Title - </strong> {recommendation.job_title}
+
+                                <hr style={{ borderTop: "1px solid #ccc", margin: "1rem 0" }} />
+
+                                <h3 style={{ marginBottom: "0.6rem", marginTop: "0" }}>Job Recommendations</h3>
+
+                                {/* JOB LIST */}
+                                {recommendation.recommendations && recommendation.recommendations.map((job, index) => (
+                                    <div key={index} style={{
+                                        background: "#ffffff",
+                                        borderRadius: "20px",
+                                        padding: "1rem",
+                                        marginBottom: "1.1rem",
+                                        border: "1px solid #d0f0eb",
+                                        boxShadow: "0 4px 10px rgba(0,0,0,0.08)"
+                                    }}>
+
+                                        <h4 style={{
+                                            margin: "0 0 0.3rem 0",
+                                            fontSize: "1.25rem"
+                                        }}>
+                                            {job.title}
+                                        </h4>
+
+                                        <div style={{ fontSize: "1rem", marginBottom: "0.3rem" }}>
+                                            <strong>Company:</strong> {job.company}
+                                        </div>
+
+                                        <div style={{ fontSize: "1rem", marginBottom: "0.3rem" }}>
+                                            <strong>Fraud Score:</strong> {job.fraud_score}
+                                        </div>
+
+                                        {/* HTML DESCRIPTION */}
+                                        <div
+                                            style={{ marginTop: "0.4rem", fontSize: "1rem", lineHeight: "1.4" }}
+                                            dangerouslySetInnerHTML={{ __html: job.description }}
+                                        />
+
+                                        <a
+                                            href={job.link}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            style={{
+                                                display: "inline-block",
+                                                marginTop: "0.8rem",
+                                                padding: "0.5rem 1.1rem",
+                                                background: "#1976d2",
+                                                color: "white",
+                                                borderRadius: "12px",
+                                                textDecoration: "none",
+                                                fontFamily: 'JomolhariReg',
+                                                fontWeight: 600
+                                            }}
+                                        >
+                                            View Job →
+                                        </a>
                                     </div>
-                                    // hiii
-                                )}
-                                {recommendation.job_url && (
-                                    <a
-                                        href={recommendation.job_url}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        style={{
-                                            display: "inline-block",
-                                            marginTop: "0.8rem",
-                                            padding: "0.5rem 1rem",
-                                            background: "#1976d2",
-                                            color: "white",
-                                            borderRadius: "12px",
-                                            textDecoration: "none",
-                                            fontFamily: 'JomolhariReg',
-                                            fontWeight: 600,
-                                            textAlign: "center"
-                                        }}
-                                    >
-                                        View Job →
-                                    </a>
-                                )}
+                                ))}
                             </div>
                         )}
                     </div>
