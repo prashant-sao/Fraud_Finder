@@ -10,7 +10,7 @@ import logging
 # Import your fraud detection modules
 
 from application.agent.auto_reply import generate_auto_reply
-from application.agent.scam_checker import add_scam_to_database
+
 
 from application.agent.risk_score import JobFraudDetector
 from application.agent.job_recommendation import ml_recommender
