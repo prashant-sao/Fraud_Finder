@@ -150,7 +150,7 @@ class JobFraudDetector:
         fraud_score = min(fraud_score, 100)
 
         # Determine verdict
-        if fraud_score >= 70:
+        if fraud_score >= 80:
             verdict = "Likely Fraudulent"
             risk_level = "High Risk"
         elif fraud_score >= 40:

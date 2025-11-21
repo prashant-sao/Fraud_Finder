@@ -16,6 +16,13 @@ const MainScreen = () => {
     const [result, setResult] = useState(null);
     const [loading, setLoading] = useState(false);
 
+    // ML Recommendation state
+    const [recommendation, setRecommendation] = useState(null);
+    const [loadingRecommendation, setLoadingRecommendation] = useState(false);
+    const [userId, setUserId] = useState("");
+    const [visibleCount, setVisibleCount] = useState(1);
+
+
     // Handler for successful login/sign
     const handleAuthSuccess = (name) => {
         setUserName(name);
@@ -67,6 +74,37 @@ const MainScreen = () => {
             setResult({ error: err.message });
         } finally {
             setLoading(false);
+        }
+    };
+
+    const handleMLRecommend = async () => {
+        setRecommendation(null);
+        setLoadingRecommendation(true);
+        try {
+            // Use the current input as job data, or provide defaults
+            const job = {
+                title: input || 'Sample Job',
+                company: 'Sample Company',
+                url: '',
+                source: 'User',
+            };
+            const response = await fetch("/api/ml_recommend", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(job)
+            });
+            const data = await response.json();
+            if (!response.ok || data.error) {
+                setRecommendation({
+                    error: data.error || "Failed to load recommendation."
+                });
+            } else {
+                setRecommendation(data);
+            }
+        } catch (err) {
+            setRecommendation({ error: err.message });
+        } finally {
+            setLoadingRecommendation(false);
         }
     };
 
@@ -324,33 +362,68 @@ const MainScreen = () => {
                                                     minHeight: 120
                                                 }}>
                                                     {(() => {
-                                                        const flags = Array.isArray(result.analysis.red_flags) ? result.analysis.red_flags.slice(0, 8) : [];
-                                                        while (flags.length <= 8) flags.push('No flag');
-                                                        return flags.map((flag, idx) => (
-                                                            <div key={idx} style={{
-                                                                background: '#c0c0c0',
-                                                                border: '2px solid #c0c0c0',
-                                                                borderRadius: 25,
-                                                                width: 100,
-                                                                height: 100,
-                                                                minWidth: 200,
-                                                                minHeight: 100,
-                                                                maxWidth: 100,
-                                                                maxHeight: 100,
-                                                                display: 'flex',
-                                                                alignItems: 'center',
-                                                                justifyContent: 'center',
-                                                                fontWeight: 500,
-                                                                fontSize: 15,
-                                                                color: '#000000',
-                                                                boxShadow: '0 2px 8px rgba(44,62,80,0.07)',
-                                                                padding: 0,
-                                                                textAlign: 'center',
-                                                                transition: 'background 0.3s',
-                                                                overflow: 'hidden',
-                                                                wordBreak: 'break-word'
-                                                            }}>
-                                                                {flag}
+                                                        const flagMessages = {
+                                                            'vague_description': 'Vague Job Description',
+                                                            'unrealistic_salary': 'Unrealistic Salary/Benefits',
+                                                            'no_company_info': 'No Company Information',
+                                                            'requests_personal_details': 'Request for Personal Details',
+                                                            'poor_grammar': 'Poor Grammar/Spelling',
+                                                            'suspicious_contact': 'Suspicious Contact Methods',
+                                                            'no_linkedin': 'No LinkedIn Presence',
+                                                            'no_company_website': 'No Company Website'
+                                                        };
+
+                                                        const flagImages = {
+                                                            vague_description: "/src/assets/vague_jd.png",
+                                                            unrealistic_salary: "/src/assets/unreal_salary.png",
+                                                            no_company_info: "/src/assets/no_comp_info.png",
+                                                            requests_personal_details: "/src/assets/personal_info.png",
+                                                            poor_grammar: "/src/assets/poor_grammar.png",
+                                                            suspicious_contact: "/src/assets/sus_contact.png",
+                                                            no_linkedin: "/src/assets/no_linkedin.png",
+                                                            no_company_website: "/src/assets/no_website.png"
+                                                        };
+
+                                                        const flags = result.analysis.red_flags;
+
+                                                        const activeFlags = Object.entries(flags)
+                                                            .filter(([key, value]) => value === true)
+                                                            .map(([key]) => [key, flagMessages[key]]);
+
+
+                                                        return activeFlags.map(([key, label], idx) => (
+                                                            <div
+                                                                key={idx}
+                                                                style={{
+                                                                    background: '#c0c0c0',
+                                                                    border: '2px solid #c0c0c0',
+                                                                    borderRadius: 25,
+                                                                    width: 295,
+                                                                    height: 120,
+                                                                    display: 'flex',
+                                                                    flexDirection: 'column',
+                                                                    alignItems: 'center',
+                                                                    justifyContent: 'center',
+                                                                    fontWeight: 500,
+                                                                    fontSize: 18,
+                                                                    color: '#000000',
+                                                                    boxShadow: '0 2px 8px rgba(44,62,80,0.2)',
+                                                                    padding: 10,
+                                                                    textAlign: 'center',
+                                                                    transition: 'transform 0.2s',
+                                                                }}
+                                                            >
+                                                                <img
+                                                                    src={flagImages[key]}
+                                                                    alt={label}
+                                                                    style={{
+                                                                        width: 50,
+                                                                        height: 50,
+                                                                        objectFit: "contain",
+                                                                        marginBottom: 8
+                                                                    }}
+                                                                />
+                                                                <div>{label}</div>
                                                             </div>
                                                         ));
                                                     })()}
@@ -361,11 +434,6 @@ const MainScreen = () => {
                                             </div>
                                         </>
                                     )}
-                                    {/* {result.auto_reply && (
-                                        <div style={{ marginTop: '1.5rem', background: '#e0f7fa', borderRadius: '10px', padding: '1rem' }}>
-                                            <span style={{ fontWeight: 600 }}>Auto Reply Suggestion -</span>
-                                        </div>
-                                    )} */}
                                 </div>
                             ) : result && (
                                 <div style={{
@@ -382,8 +450,222 @@ const MainScreen = () => {
                             )}
                         </div>
                     </div>
-                    <div style={{ display: "flex", alignItems: "right", height: "100%" }}>
-                        <img src="src/assets/sample.png" alt="sample" style={{ maxWidth: "350px", borderRadius: "15px", boxShadow: "0 10px 15px rgba(44,62,80,0.10)" }} />
+
+                    {/* ML Recommendation Panel */}
+                    <div style={{
+                        width: "350px",
+                        display: "flex",
+                        flexDirection: "column",
+                        alignItems: "flex-start",
+                        top: "20px",
+                    }}>
+
+                        <div style={{ display: 'flex', alignItems: 'center', marginBottom: '1rem', gap: '1rem' }}>
+                            <h2 style={{
+                                fontFamily: 'JomolhariReg',
+                                fontSize: "1.7rem",
+                                margin: 0
+                            }}>
+                                Job Recommendations
+                            </h2>
+                        </div>
+
+                        <button
+                            onClick={handleMLRecommend}
+                            style={{
+                                fontFamily: 'JomolhariReg',
+                                padding: '0.5rem 1.2rem',
+                                borderRadius: '25px',
+                                border: 'none',
+                                background: '#32BCAE',
+                                color: '#fff',
+                                fontWeight: 600,
+                                fontSize: '1rem',
+                                cursor: 'pointer',
+                                marginLeft: '0.5rem'
+                            }}
+                            disabled={loadingRecommendation}
+                        >
+                            {loadingRecommendation ? 'Loading...' : 'Get Recommendation'}
+                        </button>
+
+                        {/* LOADING */}
+                        {loadingRecommendation && (
+                            <div style={{
+                                background: "#e0f7fa",
+                                borderRadius: "20px",
+                                padding: "1.8rem 1.2rem",
+                                marginTop: "12px",
+                                width: "90%",
+                                color: "#00796b",
+                                fontFamily: 'JomolhariReg',
+                                textAlign: "center",
+                                boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
+                                border: "1px solid #b2ebf2",
+                                fontSize: "1.1rem"
+                            }}>
+                                Fetching job recommendations...
+                                <div style={{ marginTop: "10px", fontSize: "0.9rem", opacity: 0.8 }}>
+                                    Please wait while we analyze safe & risky jobs
+                                </div>
+                            </div>
+                        )}
+
+                        {/* ERROR */}
+                        {recommendation && recommendation.error && (
+                            <div style={{
+                                marginTop: "1rem",
+                                background: "#ffebee",
+                                borderRadius: "20px",
+                                padding: "1.4rem 1.5rem",
+                                width: "90%",
+                                color: "#c62828",
+                                fontFamily: 'JomolhariReg',
+                                border: "1px solid #ffcdd2",
+                                boxShadow: "0 4px 12px rgba(0,0,0,0.12)",
+                                fontSize: "1.05rem"
+                            }}>
+                                <strong style={{ fontWeight: 700 }}>❌ Error:</strong> {recommendation.error}
+                                <div style={{ marginTop: "8px", fontSize: "0.95rem", opacity: 0.8 }}>
+                                    Please try again or check your internet connection.
+                                </div>
+                            </div>
+                        )}
+
+                        {/* SUCCESS RECOMMENDATION */}
+                        {recommendation && !recommendation.error && (
+                            <div style={{
+                                marginTop: "1rem",
+                                borderRadius: "25px",
+                                padding: "1rem 1rem",
+                                width: "90%",
+                                boxShadow: "0 10px 10px rgba(44,62,80,0.2)",
+                                fontFamily: 'JomolhariReg',
+                                border: "1px solid #32BCAE",
+                                background: "#f0fffd"
+                            }}>
+
+                                {/* SUMMARY */}
+                                <h3 style={{
+                                    margin: 0,
+                                    fontSize: "1.45rem",
+                                    marginBottom: "0.6rem"
+                                }}>
+                                    Recommended Jobs Summary
+                                </h3>
+
+                                <div style={{ fontSize: "1.05rem", marginBottom: "1rem", lineHeight: "1.5" }}>
+                                    <div><strong>Total Recommendations:</strong> {recommendation.total_recommendations}</div>
+                                    <div><strong>Safe Jobs:</strong> {recommendation.safe_jobs_count}</div>
+                                    <div><strong>Risky Jobs:</strong> {recommendation.risky_jobs_count}</div>
+                                </div>
+
+                                <hr style={{ borderTop: "1px solid #ccc", margin: "1rem 0" }} />
+
+                                <h3 style={{ marginBottom: "0.6rem", marginTop: "0" }}>Job Recommendations</h3>
+
+                                {/* JOB LIST WITH LOAD MORE */}
+                                {recommendation.recommendations &&
+                                    recommendation.recommendations
+                                        .slice(0, visibleCount)
+                                        .map((job, index) => (
+                                            <div key={index} style={{
+                                                background: "#ffffff",
+                                                borderRadius: "20px",
+                                                padding: "1rem",
+                                                marginBottom: "1.1rem",
+                                                border: "1px solid #d0f0eb",
+                                                boxShadow: "0 4px 10px rgba(0,0,0,0.08)"
+                                            }}>
+
+                                                <h4 style={{
+                                                    margin: "0 0 0.3rem 0",
+                                                    fontSize: "1.25rem"
+                                                }}>
+                                                    {job.title}
+                                                </h4>
+
+                                                <div style={{ fontSize: "1rem", marginBottom: "0.3rem" }}>
+                                                    <strong>Company:</strong> {job.company}
+                                                </div>
+
+                                                <div style={{ fontSize: "1rem", marginBottom: "0.3rem" }}>
+                                                    <strong>Fraud Score:</strong> {job.fraud_score}
+                                                </div>
+
+                                                {/* HTML DESCRIPTION */}
+                                                <div
+                                                    style={{ marginTop: "0.4rem", fontSize: "1rem", lineHeight: "1.4" }}
+                                                    dangerouslySetInnerHTML={{ __html: job.description }}
+                                                />
+
+                                                <a
+                                                    href={job.link}
+                                                    target="_blank"
+                                                    rel="noopener noreferrer"
+                                                    style={{
+                                                        display: "inline-block",
+                                                        marginTop: "0.8rem",
+                                                        padding: "0.5rem 1.1rem",
+                                                        background: "#1976d2",
+                                                        color: "white",
+                                                        borderRadius: "12px",
+                                                        textDecoration: "none",
+                                                        fontFamily: 'JomolhariReg',
+                                                        fontWeight: 600
+                                                    }}
+                                                >
+                                                    View Job →
+                                                </a>
+                                            </div>
+                                        ))
+                                }
+
+                                {/* LOAD MORE BUTTON */}
+                                {recommendation.recommendations &&
+                                    visibleCount < recommendation.recommendations.length && (
+                                        <button
+                                            onClick={() => setVisibleCount(prev => prev + 3)}
+                                            style={{
+                                                padding: "0.6rem 1rem",
+                                                background: "#32BCAE",
+                                                color: "white",
+                                                borderRadius: "12px",
+                                                border: "none",
+                                                cursor: "pointer",
+                                                fontFamily: 'JomolhariReg',
+                                                fontWeight: 600,
+                                                display: "block",
+                                                margin: "10px auto"
+                                            }}
+                                        >
+                                            Load More ↓
+                                        </button>
+                                    )}
+
+                                {/* SHOW LESS BUTTON */}
+                                {visibleCount > 1 && (
+                                    <button
+                                        onClick={() => setVisibleCount(1)}
+                                        style={{
+                                            padding: "0.6rem 1rem",
+                                            background: "#b0bec5",
+                                            color: "white",
+                                            borderRadius: "12px",
+                                            border: "none",
+                                            cursor: "pointer",
+                                            fontFamily: 'JomolhariReg',
+                                            fontWeight: 600,
+                                            display: "block",
+                                            margin: "10px auto"
+                                        }}
+                                    >
+                                        Show Less ↑
+                                    </button>
+                                )}
+
+                            </div>
+                        )}
                     </div>
                 </div>
             </main>
