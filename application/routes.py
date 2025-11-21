@@ -388,10 +388,10 @@ def ml_recommend():
         search_query = data.get('search_query')
         
         # user_id is REQUIRED for personalized recommendations
-        if not user_id:
-            return jsonify({
-                'error': 'user_id is required for personalized recommendations'
-            }), 400
+        # if not user_id:
+        #     return jsonify({
+        #         'error': 'user_id is required for personalized recommendations'
+        #     }), 400
         
         # Validate limit
         if not isinstance(limit, int) or limit < 1 or limit > 50:

@@ -16,6 +16,12 @@ const MainScreen = () => {
     const [result, setResult] = useState(null);
     const [loading, setLoading] = useState(false);
 
+    // ML Recommendation state
+    const [recommendation, setRecommendation] = useState(null);
+    const [loadingRecommendation, setLoadingRecommendation] = useState(false);
+    const [userId, setUserId] = useState(""); // <-- add this
+
+
     // Handler for successful login/sign
     const handleAuthSuccess = (name) => {
         setUserName(name);
@@ -67,6 +73,37 @@ const MainScreen = () => {
             setResult({ error: err.message });
         } finally {
             setLoading(false);
+        }
+    };
+
+    const handleMLRecommend = async () => {
+        setRecommendation(null);
+        setLoadingRecommendation(true);
+        try {
+            // Use the current input as job data, or provide defaults
+            const job = {
+                title: input || 'Sample Job',
+                company: 'Sample Company',
+                url: '',
+                source: 'User',
+            };
+            const response = await fetch("/api/ml_recommend", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(job)
+            });
+            const data = await response.json();
+            if (!response.ok || data.error) {
+                setRecommendation({
+                    error: data.error || "Failed to load recommendation."
+                });
+            } else {
+                setRecommendation(data);
+            }
+        } catch (err) {
+            setRecommendation({ error: err.message });
+        } finally {
+            setLoadingRecommendation(false);
         }
     };
 
@@ -396,11 +433,6 @@ const MainScreen = () => {
                                             </div>
                                         </>
                                     )}
-                                    {/* {result.auto_reply && (
-                                        <div style={{ marginTop: '1.5rem', background: '#e0f7fa', borderRadius: '10px', padding: '1rem' }}>
-                                            <span style={{ fontWeight: 600 }}>Auto Reply Suggestion -</span>
-                                        </div>
-                                    )} */}
                                 </div>
                             ) : result && (
                                 <div style={{
@@ -417,8 +449,139 @@ const MainScreen = () => {
                             )}
                         </div>
                     </div>
-                    <div style={{ display: "flex", alignItems: "right", height: "100%" }}>
-                        <img src="src/assets/sample.png" alt="sample" style={{ maxWidth: "350px", borderRadius: "15px", boxShadow: "0 10px 15px rgba(44,62,80,0.10)" }} />
+
+                    {/* ML Recommendation Panel */}
+                    <div style={{
+                        width: "350px",
+                        display: "flex",
+                        flexDirection: "column",
+                        alignItems: "flex-start",
+                        top: "20px",
+                    }}>
+
+                        <div style={{ display: 'flex', alignItems: 'center', marginBottom: '1rem', gap: '1rem' }}>
+                            <h2 style={{
+                                fontFamily: 'JomolhariReg',
+                                fontSize: "1.7rem",
+                                margin: 0
+                            }}>
+                                Job Recommendations
+                            </h2>
+                        </div>
+
+                        <button
+                            onClick={handleMLRecommend}
+                            style={{
+                                fontFamily: 'JomolhariReg',
+                                padding: '0.5rem 1.2rem',
+                                borderRadius: '25px',
+                                border: 'none',
+                                background: '#32BCAE',
+                                color: '#fff',
+                                fontWeight: 600,
+                                fontSize: '1rem',
+                                cursor: 'pointer',
+                                marginLeft: '0.5rem'
+                            }}
+                            disabled={loadingRecommendation}
+                        >
+                            {loadingRecommendation ? 'Loading...' : 'Get Recommendation'}
+                        </button>
+
+                        {/* LOADING */}
+                        {loadingRecommendation && (
+                            <div style={{
+                                background: "#fff3e0",
+                                borderRadius: "25px",
+                                padding: "2rem 1.5rem",
+                                marginTop:"10px",
+                                width: "90%",
+                                color: "#fb8c00",
+                                fontFamily: 'JomolhariReg',
+                                textAlign: "center",
+                                boxShadow: "0 4px 12px rgba(44,62,80,0.2)",
+                                border: "1px solid #ffe0b2"
+                            }}>
+                                Fetching recommendation...
+                            </div>
+                        )}
+
+                        {/* ERROR */}
+                        {recommendation && recommendation.error && (
+                            <div style={{
+                                marginTop: "1rem",
+                                background: "#ffebee",
+                                borderRadius: "15px",
+                                padding: "1.2rem 1.5rem",
+                                width: "90%",
+                                color: "#b71c1c",
+                                fontFamily: 'JomolhariReg',
+                                border: "1px solid #ef9a9a"
+                            }}>
+                                <strong>Error - </strong> {recommendation.error}
+                            </div>
+                        )}
+
+                        {/* SUCCESS RECOMMENDATION */}
+                        {recommendation && !recommendation.error && (
+                            <div style={{
+                                marginTop: "1rem",
+                                // background: "#e3f2fd",
+                                borderRadius: "25px",
+                                padding: "1rem 1rem",
+                                width: "90%",
+                                boxShadow: "0 10px 10px rgba(44,62,80,0.2)",
+                                fontFamily: 'JomolhariReg',
+                                border: "1px solid #32BCAE"
+                            }}>
+                                {/* TITLE */}
+                                <h3 style={{
+                                    fontFamily: 'JomolhariReg',
+                                    margin: 0,
+                                    fontSize: "1.4rem",
+                                    marginBottom: "0.4rem"
+                                }}>
+                                    <strong>Title - </strong>{recommendation.title}
+                                </h3>
+                                {/* DESCRIPTION */}
+                                <div style={{ marginBottom: "1rem", fontSize: "1rem" }}>
+                                    <strong>Description - </strong>{recommendation.description}
+                                </div>
+                                {/* RISK LEVEL & FRAUD SCORE */}
+                                <div style={{ marginBottom: "0.8rem", fontSize: "1rem" }}>
+                                    <strong>Risk Level - </strong> {recommendation.risk_level}
+                                </div>
+                                <div style={{ marginBottom: "0.8rem", fontSize: "1rem" }}>
+                                    <strong>Fraud Score - </strong> {recommendation.fraud_score}
+                                </div>
+                                {recommendation.job_title && (
+                                    <div style={{ marginBottom: "0.8rem", fontSize: "1rem" }}>
+                                        <strong>Job Title - </strong> {recommendation.job_title}
+                                    </div>
+                                )}
+                                {recommendation.job_url && (
+                                    <a
+                                        href={recommendation.job_url}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        style={{
+                                            display: "inline-block",
+                                            marginTop: "0.8rem",
+                                            padding: "0.5rem 1rem",
+                                            background: "#1976d2",
+                                            color: "white",
+                                            borderRadius: "12px",
+                                            textDecoration: "none",
+                                            fontFamily: 'JomolhariReg',
+                                            fontWeight: 600,
+                                            textAlign: "center"
+                                        }}
+                                    >
+                                        View Job →
+                                    </a>
+                                )}
+                            </div>
+                        )}
                     </div>
                 </div>
             </main>
