@@ -8,7 +8,7 @@ import re
 import logging
 
 # Import your fraud detection modules
-from application.agent.corporate_agent import CorporateAgent
+
 from application.agent.auto_reply import generate_auto_reply
 from application.agent.scam_checker import add_scam_to_database
 
