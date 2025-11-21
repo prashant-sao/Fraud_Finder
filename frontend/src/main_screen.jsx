@@ -558,6 +558,7 @@ const MainScreen = () => {
                                     <div style={{ marginBottom: "0.8rem", fontSize: "1rem" }}>
                                         <strong>Job Title - </strong> {recommendation.job_title}
                                     </div>
+                                    // hiii
                                 )}
                                 {recommendation.job_url && (
                                     <a
