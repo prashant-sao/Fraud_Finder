@@ -8,9 +8,9 @@ import re
 import logging
 
 # Import your fraud detection modules
-from application.agent.corporate_agent import CorporateAgent
+
 from application.agent.auto_reply import generate_auto_reply
-from application.agent.scam_checker import add_scam_to_database
+
 
 from application.agent.risk_score import JobFraudDetector
 from application.agent.job_recommendation import ml_recommender
@@ -22,8 +22,7 @@ api_bp = Blueprint('api_bp', __name__)
 
 
 
-# Initialize the corporate agent
-Corporate_agent = CorporateAgent()
+
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
