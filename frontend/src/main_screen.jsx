@@ -19,7 +19,8 @@ const MainScreen = () => {
     // ML Recommendation state
     const [recommendation, setRecommendation] = useState(null);
     const [loadingRecommendation, setLoadingRecommendation] = useState(false);
-    const [userId, setUserId] = useState(""); // <-- add this
+    const [userId, setUserId] = useState("");
+    const [visibleCount, setVisibleCount] = useState(1);
 
 
     // Handler for successful login/sign
@@ -563,58 +564,106 @@ const MainScreen = () => {
 
                                 <h3 style={{ marginBottom: "0.6rem", marginTop: "0" }}>Job Recommendations</h3>
 
-                                {/* JOB LIST */}
-                                {recommendation.recommendations && recommendation.recommendations.map((job, index) => (
-                                    <div key={index} style={{
-                                        background: "#ffffff",
-                                        borderRadius: "20px",
-                                        padding: "1rem",
-                                        marginBottom: "1.1rem",
-                                        border: "1px solid #d0f0eb",
-                                        boxShadow: "0 4px 10px rgba(0,0,0,0.08)"
-                                    }}>
+                                {/* JOB LIST WITH LOAD MORE */}
+                                {recommendation.recommendations &&
+                                    recommendation.recommendations
+                                        .slice(0, visibleCount)
+                                        .map((job, index) => (
+                                            <div key={index} style={{
+                                                background: "#ffffff",
+                                                borderRadius: "20px",
+                                                padding: "1rem",
+                                                marginBottom: "1.1rem",
+                                                border: "1px solid #d0f0eb",
+                                                boxShadow: "0 4px 10px rgba(0,0,0,0.08)"
+                                            }}>
 
-                                        <h4 style={{
-                                            margin: "0 0 0.3rem 0",
-                                            fontSize: "1.25rem"
-                                        }}>
-                                            {job.title}
-                                        </h4>
+                                                <h4 style={{
+                                                    margin: "0 0 0.3rem 0",
+                                                    fontSize: "1.25rem"
+                                                }}>
+                                                    {job.title}
+                                                </h4>
 
-                                        <div style={{ fontSize: "1rem", marginBottom: "0.3rem" }}>
-                                            <strong>Company:</strong> {job.company}
-                                        </div>
+                                                <div style={{ fontSize: "1rem", marginBottom: "0.3rem" }}>
+                                                    <strong>Company:</strong> {job.company}
+                                                </div>
 
-                                        <div style={{ fontSize: "1rem", marginBottom: "0.3rem" }}>
-                                            <strong>Fraud Score:</strong> {job.fraud_score}
-                                        </div>
+                                                <div style={{ fontSize: "1rem", marginBottom: "0.3rem" }}>
+                                                    <strong>Fraud Score:</strong> {job.fraud_score}
+                                                </div>
 
-                                        {/* HTML DESCRIPTION */}
-                                        <div
-                                            style={{ marginTop: "0.4rem", fontSize: "1rem", lineHeight: "1.4" }}
-                                            dangerouslySetInnerHTML={{ __html: job.description }}
-                                        />
+                                                {/* HTML DESCRIPTION */}
+                                                <div
+                                                    style={{ marginTop: "0.4rem", fontSize: "1rem", lineHeight: "1.4" }}
+                                                    dangerouslySetInnerHTML={{ __html: job.description }}
+                                                />
 
-                                        <a
-                                            href={job.link}
-                                            target="_blank"
-                                            rel="noopener noreferrer"
+                                                <a
+                                                    href={job.link}
+                                                    target="_blank"
+                                                    rel="noopener noreferrer"
+                                                    style={{
+                                                        display: "inline-block",
+                                                        marginTop: "0.8rem",
+                                                        padding: "0.5rem 1.1rem",
+                                                        background: "#1976d2",
+                                                        color: "white",
+                                                        borderRadius: "12px",
+                                                        textDecoration: "none",
+                                                        fontFamily: 'JomolhariReg',
+                                                        fontWeight: 600
+                                                    }}
+                                                >
+                                                    View Job →
+                                                </a>
+                                            </div>
+                                        ))
+                                }
+
+                                {/* LOAD MORE BUTTON */}
+                                {recommendation.recommendations &&
+                                    visibleCount < recommendation.recommendations.length && (
+                                        <button
+                                            onClick={() => setVisibleCount(prev => prev + 3)}
                                             style={{
-                                                display: "inline-block",
-                                                marginTop: "0.8rem",
-                                                padding: "0.5rem 1.1rem",
-                                                background: "#1976d2",
+                                                padding: "0.6rem 1rem",
+                                                background: "#32BCAE",
                                                 color: "white",
                                                 borderRadius: "12px",
-                                                textDecoration: "none",
+                                                border: "none",
+                                                cursor: "pointer",
                                                 fontFamily: 'JomolhariReg',
-                                                fontWeight: 600
+                                                fontWeight: 600,
+                                                display: "block",
+                                                margin: "10px auto"
                                             }}
                                         >
-                                            View Job →
-                                        </a>
-                                    </div>
-                                ))}
+                                            Load More ↓
+                                        </button>
+                                    )}
+
+                                {/* SHOW LESS BUTTON */}
+                                {visibleCount > 1 && (
+                                    <button
+                                        onClick={() => setVisibleCount(1)}
+                                        style={{
+                                            padding: "0.6rem 1rem",
+                                            background: "#b0bec5",
+                                            color: "white",
+                                            borderRadius: "12px",
+                                            border: "none",
+                                            cursor: "pointer",
+                                            fontFamily: 'JomolhariReg',
+                                            fontWeight: 600,
+                                            display: "block",
+                                            margin: "10px auto"
+                                        }}
+                                    >
+                                        Show Less ↑
+                                    </button>
+                                )}
+
                             </div>
                         )}
                     </div>
