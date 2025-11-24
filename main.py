@@ -72,28 +72,42 @@ from application.database import db
 from application.models import User, Role
 
 
-FRONTEND_FOLDER = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "frontend"))
+# -------------------------------------------------------------------
+# PATHS
+# -------------------------------------------------------------------
+
+# Base folder of this file (src/)
+BASE_DIR = os.path.abspath(os.path.dirname(__file__))
+
+# Path to frontend dist folder: project/frontend/dist
+FRONTEND_DIST = os.path.abspath(
+    os.path.join(BASE_DIR, "..", "frontend", "dist")
+)
 
 
+# -------------------------------------------------------------------
+# APP FACTORY
+# -------------------------------------------------------------------
 def create_app():
     app = Flask(
         __name__,
-        static_folder=FRONTEND_FOLDER,
-        template_folder=FRONTEND_FOLDER
+        static_folder=FRONTEND_DIST,        # JS, CSS, assets
+        template_folder=FRONTEND_DIST       # index.html
     )
 
+    # Flask config
     app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///fraud_detection.db'
     app.config.from_object(LocalDevlopmentConfig)
 
-    # Enable CORS for API only
-    CORS(app, 
+    # Enable CORS for API routes only
+    CORS(app,
          resources={r"/api/*": {"origins": "*"}},
          allow_headers=["Content-Type", "Authorization"],
          methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
          supports_credentials=True)
 
+    # Initialize DB + Flask-Security
     db.init_app(app)
-
     datastore = SQLAlchemyUserDatastore(db, User, Role)
     app.security = Security(app, datastore)
 
@@ -106,39 +120,49 @@ def create_app():
         response.headers.add('Access-Control-Allow-Credentials', 'true')
         return response
 
-    # REST API
+    # Register blueprints
     from application.routes import api_bp
     api_bp.security = app.security
     app.register_blueprint(api_bp)
 
-    # ---------- Serve React Frontend -----------
-    @app.route("/")
-    def index():
-        return send_from_directory(FRONTEND_FOLDER, "index.html")
+    # -----------------------------------------------------------
+    # VITE FRONTEND SERVING (dist folder)
+    # -----------------------------------------------------------
 
-    # Catch-all route for React Router
+    # Serve index.html
+    @app.route("/")
+    def serve_index():
+        return send_from_directory(FRONTEND_DIST, "index.html")
+
+    # Serve static files or fallback to index.html for React Router
     @app.route("/<path:path>")
-    def static_proxy(path):
-        file_path = os.path.join(FRONTEND_FOLDER, path)
+    def serve_static(path):
+        file_path = os.path.join(FRONTEND_DIST, path)
 
         if os.path.isfile(file_path):
-            return send_from_directory(FRONTEND_FOLDER, path)
+            return send_from_directory(FRONTEND_DIST, path)
 
-        return send_from_directory(FRONTEND_FOLDER, "index.html")
-    # -------------------------------------------
+        # fallback to SPA
+        return send_from_directory(FRONTEND_DIST, "index.html")
 
     return app
 
+
+# -------------------------------------------------------------------
+# APP INITIALIZATION
+# -------------------------------------------------------------------
 
 app = create_app()
 
 with app.app_context():
     db.create_all()
 
+    # Create default roles
     app.security.datastore.find_or_create_role(name='admin')
     app.security.datastore.find_or_create_role(name='user')
     db.session.commit()
 
+    # Create default admin user
     if not app.security.datastore.find_user(email='admin@123.com'):
         admin_user = app.security.datastore.create_user(
             email='admin@123.com',
@@ -149,5 +173,9 @@ with app.app_context():
         db.session.commit()
 
 
+# -------------------------------------------------------------------
+# LOCAL DEV
+# -------------------------------------------------------------------
 if __name__ == "__main__":
     app.run(debug=True, host="0.0.0.0", port=5000)
+
